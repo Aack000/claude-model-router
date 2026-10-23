@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
- * dev-check —— 核实一轮 /dev 里每个子代理**实际**跑的模型和档位
+ * automode-check —— 核实一轮 /automode 里每个子代理**实际**跑的模型和档位
  *
  * 配置说了不算，transcript 里的 message.model 和 "effort" 才是真相。
  * 这个脚本把「规划该跑 fable、审查该跑 opus、其余该跑 sonnet」逐个对一遍，
  * 跑错了当场报出来，不用等账单或者事后翻 transcript。约 0.5 秒，不花 token。
  *
  * 用法：
- *   node dev-check.js --from <开工时间戳>   只看这个时间之后**有活动**的记录（/dev 阶段 0 用 `date +%s` 记下）
- *   node dev-check.js --since 90            同上，换算成「最近 90 分钟」
- *   node dev-check.js                       不限时间：当前会话的全部记录
- *   node dev-check.js --session <id前缀>     指定会话（默认读环境变量 CLAUDE_CODE_SESSION_ID）
- *   node dev-check.js --from <时间戳> --full  没问题时也打完整表（/dev 最后汇报用）
+ *   node automode-check.js --from <开工时间戳>   只看这个时间之后**有活动**的记录（/automode 阶段 0 用 `date +%s` 记下）
+ *   node automode-check.js --since 90            同上，换算成「最近 90 分钟」
+ *   node automode-check.js                       不限时间：当前会话的全部记录
+ *   node automode-check.js --session <id前缀>     指定会话（默认读环境变量 CLAUDE_CODE_SESSION_ID）
+ *   node automode-check.js --from <时间戳> --full  没问题时也打完整表（/automode 最后汇报用）
  *
  * 输出：没有 ❌ 和 ⚠ 时只打一行（各角色个数 + 主会话当前上下文），有问题才打完整表——
- * 一轮 /dev 要跑一二十次，每次整表进主会话上下文约 1 万 token，全是重复的 ✅。
- * 主会话上下文 = 最后一次调用送进去的 token 数，dev.md 用它判断阶段边界要不要附压缩命令。
+ * 一轮 /automode 要跑一二十次，每次整表进主会话上下文约 1 万 token，全是重复的 ✅。
+ * 主会话上下文 = 最后一次调用送进去的 token 数，automode.md 用它判断阶段边界要不要附压缩命令。
  *
  * 退出码：有 ❌ 返回 1。
  *
- * 判定规则（和 commands/dev.md【模型路由】一一对应，改一边要改另一边）：
+ * 判定规则（和 commands/automode.md【模型路由】一一对应，改一边要改另一边）：
  *   planner-fable → fable    靠 frontmatter，不该传 model 参数（传了会覆盖 frontmatter）
  *   code-reviewer → opus     同上
  *   其余所有子代理 → sonnet   必须显式传 model: "sonnet"，不传就继承主会话
@@ -225,14 +225,14 @@ if (!bad && !warnN && !FULL) {
   if (from && !roleN.planner) zero.push('规划 0 个：本轮跳过了规划就正常，否则查 --from 是否晚于规划开始');
   if (from && !roleN.reviewer) zero.push('审查 0 个：还没到审查就正常');
   const total = roleN.planner + roleN.reviewer + roleN.other;
-  console.log(`✅ dev-check  ·  会话 ${sid.slice(0, 8)}${windowDesc}  ·  ` +
+  console.log(`✅ automode-check  ·  会话 ${sid.slice(0, 8)}${windowDesc}  ·  ` +
     (total ? `子代理 ${total} 个（规划 ${roleN.planner} · 审查 ${roleN.reviewer} · 其余 ${roleN.other}）全部按设计跑，版本都是 env 当前钉的`
            : '窗口内还没有子代理，主会话模型正常') + `  ·  ${ctxLine}`);
   if (zero.length) console.log(`   （${zero.join('；')}）`);
   process.exit(0);
 }
 
-console.log(`dev-check  ·  会话 ${sid}${windowDesc}\n`);
+console.log(`automode-check  ·  会话 ${sid}${windowDesc}\n`);
 console.log('| 首次活动 | 谁 | 应跑 | 实际模型 | effort | 调用 | 结论 |');
 console.log('|---|---|---|---|---|---|---|');
 for (const r of rows) {
@@ -240,7 +240,7 @@ for (const r of rows) {
 }
 console.log();
 for (const t of tail) console.log(t);
-if (bad) console.log(`❌ ${bad} 处模型用错——在 /dev、/plan-fable 流程里：这几个子代理的产出按「没按设计跑」处理，停下来问用户要不要重跑（dev.md 停点 S7）。流程外有意指定别的模型的子代理不算`);
+if (bad) console.log(`❌ ${bad} 处模型用错——在 /automode、/plan-fable 流程里：这几个子代理的产出按「没按设计跑」处理，停下来问用户要不要重跑（automode.md 停点 S7）。流程外有意指定别的模型的子代理不算`);
 if (warnN) console.log(`⚠ ${warnN} 项提醒`);
 if (!bad && !warnN && !tail.length) console.log('✅ 窗口内全部按设计跑：规划 fable、审查 opus、其余 sonnet，版本都是 env 当前钉的');
 else if (!bad) console.log('没有用错模型的子代理');

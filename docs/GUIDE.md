@@ -2,17 +2,17 @@
 
 按任务阶段分配模型，而不是全程用同一个：
 
-**日常只需要一条命令：`/dev <任务>`** —— 它把下面三个阶段串起来自动跑完。
+**日常只需要一条命令：`/automode <任务>`** —— 它把下面三个阶段串起来自动跑完。
 
 | 阶段 | 模型 | 单独触发 | 跑在哪 |
 |---|---|---|---|
 | **规划** | fable | `/plan-fable <任务>` | `planner-fable` 子代理（frontmatter 钉模型，**不传 model 参数**） |
-| **实现 / 修复 / 文档** | sonnet | `/dev` 自动派 | general-purpose 子代理，Agent 工具传 `model: "sonnet"` |
+| **实现 / 修复 / 文档** | sonnet | `/automode` 自动派 | general-purpose 子代理，Agent 工具传 `model: "sonnet"` |
 | **查错 / 复审** | opus | 说「用 code-reviewer 审一下 xxx」 | `code-reviewer` 子代理（同规划，不传 model） |
 
-主会话只编排、把决定交给你、核实结果，不写生产代码。所有文件里只写别名，版本由 `settings.json` 的 `ANTHROPIC_DEFAULT_*_MODEL` 决定；每轮跑完用 `dev-check.js` 核实每个子代理**实际**跑的模型（见「验证」）。
+主会话只编排、把决定交给你、核实结果，不写生产代码。所有文件里只写别名，版本由 `settings.json` 的 `ANTHROPIC_DEFAULT_*_MODEL` 决定；每轮跑完用 `automode-check.js` 核实每个子代理**实际**跑的模型（见「验证」）。
 
-> **`/dev` 的权威说明是 `commands/dev.md` 本身**，这份 README 只是概览。两边对不上时以 dev.md 为准，并回来改 README——别反过来照 README 改 dev.md。
+> **`/automode` 的权威说明是 `commands/automode.md` 本身**，这份 README 只是概览。两边对不上时以 automode.md 为准，并回来改 README——别反过来照 README 改 automode.md。
 
 设计目标是同时解决两个互相冲突的痛点：**全程 Opus 太贵**，但**全程 Sonnet bug 太多**。
 
@@ -29,7 +29,7 @@
 
 反过来，Fable 和 Opus 给到 `xhigh`——规划和查错的 token 量只占零头，但规划质量直接决定 Sonnet 会不会写错。钱花在这里是划算的。
 
-> 🧪 **10-19 起试用 Sonnet `xhigh` 3–5 天**（使用方拍板）。当初定 `high` 只是「不降档」，没测过 xhigh 值不值。实测 Sonnet 的输出（含思考）只占它花费的 5.4%，估计 xhigh 让 Sonnet 这块贵约 10%（每天 $4–6）。试完拿「首轮审查的 R 编号条数」和花费跟之前比，再定留不留。CLI 不认识 sonnet-5-5，xhigh 靠默认规则推断，`dev-check` 会核实际档位。
+> 🧪 **10-19 起试用 Sonnet `xhigh` 3–5 天**（使用方拍板）。当初定 `high` 只是「不降档」，没测过 xhigh 值不值。实测 Sonnet 的输出（含思考）只占它花费的 5.4%，估计 xhigh 让 Sonnet 这块贵约 10%（每天 $4–6）。试完拿「首轮审查的 R 编号条数」和花费跟之前比，再定留不留。CLI 不认识 sonnet-5-5，xhigh 靠默认规则推断，`automode-check` 会核实际档位。
 
 ---
 
@@ -73,7 +73,7 @@ sonnet → opus   切换后: 缓存命中 0 tok，新读 157,575 tok
   | 不存在 | `claude-fable-5-1` ✅ |
   | `= sonnet[1M]` | `claude-sonnet-5` ❌ |
 
-  它不是「默认值」，是**强制值**——代码里它在最前面直接 `return`，后面读 frontmatter 和工具参数的分支根本走不到。所以「想让实现走 Sonnet」也不该用它，那会把 Fable 规划和 Opus 审查一起降级。正确做法是 Agent 工具的 `model: "sonnet"` 参数，`/dev` 就是这么做的。
+  它不是「默认值」，是**强制值**——代码里它在最前面直接 `return`，后面读 frontmatter 和工具参数的分支根本走不到。所以「想让实现走 Sonnet」也不该用它，那会把 Fable 规划和 Opus 审查一起降级。正确做法是 Agent 工具的 `model: "sonnet"` 参数，`/automode` 就是这么做的。
 
 - **`ANTHROPIC_MODEL`** —— 优先级高于 `settings.model`，会让配置文件里的主模型设置静默失效。
 
@@ -87,30 +87,30 @@ sonnet → opus   切换后: 缓存命中 0 tok，新读 157,575 tok
 
 会话内 `/model` 切换优先于一切配置文件。
 
-**7. 别在 plan 模式下打 `/dev`——Fable 会被完全绕过。**
+**7. 别在 plan 模式下打 `/automode`——Fable 会被完全绕过。**
 
 plan 模式的系统指令写着 *"This supercedes any other instructions you have received"*，优先级高于命令正文。后果：
 
 - plan 模式禁止一切写操作 → `planner-fable` 需要 Write 落盘，**启动不了**
 - 主会话只好自己承担规划职责，用 **Opus** 做完并写进 `~/.claude/plans/`
-- `.dev-plan.md` 根本不会生成
+- `.automode-plan.md` 根本不会生成
 
-实测（09-08）：在 plan 模式下打 `/dev`，7 次 Agent 调用里 **0 次 `planner-fable`**。规划阶段被整个截走，其余阶段（sonnet 实现、opus 审查）反而都正常。
+实测（09-08）：在 plan 模式下打 `/automode`，7 次 Agent 调用里 **0 次 `planner-fable`**。规划阶段被整个截走，其余阶段（sonnet 实现、opus 审查）反而都正常。
 
-**`/dev` 是 plan 模式的替代品，不是补充。** 它自带规划阶段，把关点是阶段 2 回答「待确认问题」，等同于 ExitPlanMode 的批准环节。
+**`/automode` 是 plan 模式的替代品，不是补充。** 它自带规划阶段，把关点是阶段 2 回答「待确认问题」，等同于 ExitPlanMode 的批准环节。
 
 | | 谁产出规划 | 落在哪 | 怎么把关 |
 |---|---|---|---|
 | plan 模式 | 主会话（Opus） | `~/.claude/plans/*.md` | ExitPlanMode |
-| `/dev` | planner-fable（Fable） | `.dev-plan.md` | 阶段 2 待确认问题 |
+| `/automode` | planner-fable（Fable） | `.automode-plan.md` | 阶段 2 待确认问题 |
 
-`dev.md` 里现在有硬拦截：检测到 plan 模式就停下来要求先退出。
+`automode.md` 里现在有硬拦截：检测到 plan 模式就停下来要求先退出。
 
 **8. 内置 agent 默认 `model: inherit`，会跟着主会话跑 Opus。**
 
-`Explore`、`general-purpose` 这些内置子代理的定义里 model 是 `inherit`。主会话是 Opus 时，它们**全部跟着跑 Opus**——包括 `/dev` 前期用来摸代码库的 Explore。
+`Explore`、`general-purpose` 这些内置子代理的定义里 model 是 `inherit`。主会话是 Opus 时，它们**全部跟着跑 Opus**——包括 `/automode` 前期用来摸代码库的 Explore。
 
-实测一次 `/dev` 的前期调研：
+实测一次 `/automode` 的前期调研：
 
 | Explore | 请求 | 输出 | 缓存读 | 耗时 |
 |---|---|---|---|---|
@@ -118,7 +118,7 @@ plan 模式的系统指令写着 *"This supercedes any other instructions you ha
 
 全在 Opus 上，换 Sonnet 省约 80%。搜文件、grep、读片段这类活不需要 Opus。
 
-**所以在 `/dev` 流程里，实现、修复、文档、调研子代理都要显式传 `model: "sonnet"`；只有 `planner-fable` 和 `code-reviewer` 不传**——它们的 frontmatter 已钉 fable / opus，而 Agent 工具的 model 参数**优先于** frontmatter（2.1.276 `sdk-tools.d.ts`），传了就会静默覆盖。见 `dev.md`「一、总则·模型路由」。
+**所以在 `/automode` 流程里，实现、修复、文档、调研子代理都要显式传 `model: "sonnet"`；只有 `planner-fable` 和 `code-reviewer` 不传**——它们的 frontmatter 已钉 fable / opus，而 Agent 工具的 model 参数**优先于** frontmatter（2.1.276 `sdk-tools.d.ts`），传了就会静默覆盖。见 `automode.md`「一、总则·模型路由」。
 
 **9. 流程类反馈要落到命令文件里，光记 memory 不算固化。**
 
@@ -152,7 +152,7 @@ ls -l --time-style=+%H:%M:%S \
   ~/.claude/projects/<项目>/<会话id>/subagents/agent-*.jsonl
 ```
 
-**顺带修掉的一个设计缺陷**：原先 planner 把完整规划作为返回值输出、主会话**再写一遍** `.dev-plan.md`——同样内容生成两遍 output token，第二遍还在主会话的贵模型上。
+**顺带修掉的一个设计缺陷**：原先 planner 把完整规划作为返回值输出、主会话**再写一遍** `.automode-plan.md`——同样内容生成两遍 output token，第二遍还在主会话的贵模型上。
 
 现在的分工是：
 
@@ -160,7 +160,7 @@ ls -l --time-style=+%H:%M:%S \
 - 返回值是**完整规划全文**，主会话原样贴进对话供 review
 - 修订时用 `Edit` 只改受影响段落，不重写全文
 - 主会话**不再重写文件**
-- 流程结束后**删掉 `.dev-plan.md`**（临时中转文件，全文已在对话里）
+- 流程结束后**删掉 `.automode-plan.md`**（临时中转文件，全文已在对话里）
 
 ### 规划全文进对话是要花钱的
 
@@ -185,9 +185,9 @@ ls -l --time-style=+%H:%M:%S \
 2.5 万 token ≈ 3.5 万字符 ≈ 5.4 万字节
 ```
 
-看到 `.dev-plan.md` 有 5 万字节左右就是刚好卡在预算上，超过 6 万才需要留意。
+看到 `.automode-plan.md` 有 5 万字节左右就是刚好卡在预算上，超过 6 万才需要留意。
 
-**想省这笔钱的话**：只在**分步模式**（`/plan-fable` 规划完、自己接着执行）里可以 `/clear` 一次，规划已落盘在 `.dev-plan.md`。**`/dev` 进行中不要 `/clear`**——会丢掉 dev.md 的指令本身、planner 的会话（阶段 2 要靠它改规划）、跳过的文档清单和你中途追加的需求。
+**想省这笔钱的话**：只在**分步模式**（`/plan-fable` 规划完、自己接着执行）里可以 `/clear` 一次，规划已落盘在 `.automode-plan.md`。**`/automode` 进行中不要 `/clear`**——会丢掉 automode.md 的指令本身、planner 的会话（阶段 2 要靠它改规划）、跳过的文档清单和你中途追加的需求。
 
 ---
 
@@ -205,7 +205,7 @@ if (r) { ... }                                               // ← r = agent fr
 
 所以 `settings.json` 里**不能有** `env.CLAUDE_CODE_SUBAGENT_MODEL`，否则 `code-reviewer` 的 `model: opus` 会被静默降成该变量的值，**不报错、不提示**。
 
-删掉后该值默认为 `inherit`：没传 model 参数的普通子代理**跟随主会话**（现在主会话是 opus，所以不传就跑 opus）。这正是 `/dev` 要求实现、修复、文档子代理一律显式传 `model: "sonnet"` 的原因。
+删掉后该值默认为 `inherit`：没传 model 参数的普通子代理**跟随主会话**（现在主会话是 opus，所以不传就跑 opus）。这正是 `/automode` 要求实现、修复、文档子代理一律显式传 `model: "sonnet"` 的原因。
 
 ---
 
@@ -257,12 +257,12 @@ if (r) { ... }                                               // ← r = agent fr
 
 本机已直接落地在：
 
-- `~/.claude/commands/dev.md`（一站式流程，权威说明）
+- `~/.claude/commands/automode.md`（一站式流程，权威说明）
 - `~/.claude/commands/plan-fable.md`
 - `~/.claude/agents/planner-fable.md`
 - `~/.claude/agents/code-reviewer.md`
 
-本插件目录里是同样内容的**副本**，用于换机迁移或分享；`doctor.js`、`dev-check.js`、`usage-audit.js` 只在插件目录里，dev.md 按 `~/.claude/plugins/model-router/` 的路径调用它们。**改了 `~/.claude/` 下的四个文件，记得同步副本**。
+本插件目录里是同样内容的**副本**，用于换机迁移或分享；`doctor.js`、`automode-check.js`、`usage-audit.js` 只在插件目录里，automode.md 按 `~/.claude/plugins/model-router/` 的路径调用它们。**改了 `~/.claude/` 下的四个文件，记得同步副本**。
 
 > **不要在本机启用本插件** —— 会和上述四个文件同名冲突。插件默认 `defaultEnabled: false` 就是这个原因。换到新机器时，二选一：要么把四个 md 文件拷进 `~/.claude/{commands,agents}/`（并把整个插件目录放到 `~/.claude/plugins/model-router/`），要么挂载并启用本插件。新加的 agent 要重启 Claude Code 才加载。
 
@@ -288,10 +288,10 @@ if (r) { ... }                                               // ← r = agent fr
 ### 一站式（推荐）
 
 ```
-/dev 给用户列表加分页
+/automode 给用户列表加分页
 ```
 
-阶段之间自动推进，但**凡是决定都交给你**。必须停下来问你的地方（S1–S7，定义在 dev.md「一、总则·决策权」）：
+阶段之间自动推进，但**凡是决定都交给你**。必须停下来问你的地方（S1–S7，定义在 automode.md「一、总则·决策权」）：
 
 | 停点 | 什么时候 |
 |---|---|
@@ -301,16 +301,16 @@ if (r) { ... }                                               // ← r = agent fr
 | S4 | 审查的 🟡 修不修 |
 | S5 | 子代理缺凭据或缺前提 |
 | S6 | 复审两轮后仍有 🔴 |
-| S7 | `dev-check` 报 ❌：某个子代理用错了模型，要不要重跑 |
+| S7 | `automode-check` 报 ❌：某个子代理用错了模型，要不要重跑 |
 
 固定停点之外，凡是「在几种做法里选一个、而且会影响产出」的决定也要先问。
 
 跳过停点只认你在本轮亲口给的授权，**而且只管你说话时针对的那一处**：在待确认问题那里说「都按推荐」，到 🟡 修不修时照样会问；要覆盖后面所有停点，得明说「后面都不用问我」或「我不在」。即便如此，缺凭据（S5）、复审两轮仍有 🔴（S6）、模型用错（S7）也不会跳过：规划或审查跑错模型，本轮就停在那一步等你；某个实现包缺凭据或跑错模型，只把那一包标成阻塞，其它包照做；复审两轮仍有 🔴，就带着它们来汇报、不写文档。「有默认做法」「代价小」都不算理由——10-08 就是被这个理由跳过了 6 个问题。
 
 ```
-/dev <任务>
+/automode <任务>
    ↓ 阶段 0：有残留就问你（S1）· 核实「待实施」项是不是早做完了
-   ↓ 阶段 1：planner-fable 规划 → 落盘 .dev-plan.md ＋ 返回全文 → dev-check 核模型 → 全文原样贴出
+   ↓ 阶段 1：planner-fable 规划 → 落盘 .automode-plan.md ＋ 返回全文 → automode-check 核模型 → 全文原样贴出
    ↓ 阶段 2：待确认问题逐条问你（S2，选择题，第一项是推荐）
 你回答 → 转发回同一 planner，它改受影响段落、标 ✅ 已答，返回新文件清单和新问题
    ↓ 阶段 3：sonnet 子代理实现（每包 1–3 步，最多并行 2 个，文档步骤留到最后）
@@ -318,7 +318,7 @@ if (r) { ... }                                               // ← r = agent fr
             → 🟡 问你（S4）→ 🔴 ＋ 你批准的 🟡 一起派 sonnet 修 → 同一审查员复审一次（新发现编 N1…）
    ↓ 阶段 4.5：sonnet 写文档（描述修复后的代码）
    ↓ 阶段 5：清理临时文件（审查报告保留）· 不提交、不推送
-汇报：改了什么 / 决定清单（每条谁定的）/ 修了哪几条 / 没验证的 / dev-check 模型核实表 / 未提交的改动
+汇报：改了什么 / 决定清单（每条谁定的）/ 修了哪几条 / 没验证的 / automode-check 模型核实表 / 未提交的改动
 ```
 
 几个刻意的设计：
@@ -327,7 +327,7 @@ if (r) { ... }                                               // ← r = agent fr
 - **实现走 Sonnet 子代理，主会话不写生产代码。** 实测上一轮主会话在 Opus 上做了 35 次 Edit、19 次 Write，这是单笔最大浪费。
 - **审查报告先完整输出再动手修。** 只报「修了 2 个 🔴」等于什么都没说——你看不到 bug 内容就没法判断。报告落盘因为长任务的终端输出会被刷走，且它是要留档的，不删。
 - **规划可以慢，不能糊。** Fable 生成一份长规划可能耗时数分钟且看着像卡住（见上文「实测得出的结论」第 10 条），这是正常的，等它。
-- **每轮核实模型。** 规划返回后、最后汇报前各跑一次 `dev-check.js`，模型用错当场报出来，不靠配置推断。
+- **每轮核实模型。** 规划返回后、最后汇报前各跑一次 `automode-check.js`，模型用错当场报出来，不靠配置推断。
 
 任务明显很小（typo、单行改动）时会跳过规划直接做，但仍然过一遍审查。
 
@@ -357,26 +357,26 @@ if (r) { ... }                                               // ← r = agent fr
 | 检查项 | 方法 | 期望 |
 |---|---|---|
 | 配置完整性 | `node doctor.js` | 全绿（含「流程文件里没有写死模型版本号」） |
-| **每轮实际模型** | `node dev-check.js --from <开工时间戳>` | 规划 = fable、审查 = opus、其余 = sonnet，版本都等于 env 当前钉的，全 ✅ |
-| **规划模型** | `/plan-fable 小任务`，然后跑 dev-check | 等于 `ANTHROPIC_DEFAULT_FABLE_MODEL` |
-| **审查模型** | 用 `code-reviewer` 审一次，然后跑 dev-check | 等于 `ANTHROPIC_DEFAULT_OPUS_MODEL` |
+| **每轮实际模型** | `node automode-check.js --from <开工时间戳>` | 规划 = fable、审查 = opus、其余 = sonnet，版本都等于 env 当前钉的，全 ✅ |
+| **规划模型** | `/plan-fable 小任务`，然后跑 automode-check | 等于 `ANTHROPIC_DEFAULT_FABLE_MODEL` |
+| **审查模型** | 用 `code-reviewer` 审一次，然后跑 automode-check | 等于 `ANTHROPIC_DEFAULT_OPUS_MODEL` |
 | 多轮往返 | 回答问题后转发回同一 agent | 它记得上一轮内容 |
 | PowerShell | 跑 `$PSVersionTable.PSVersion` | `7.x`，不是 5.1 |
 | 成本 | `/cost` | 记基线，几天后对比 |
 
-**查子代理实际用了什么模型**——这是唯一可信的验证方式，不要靠界面显示或询问模型自己。首选 `dev-check.js`（按 `message.id` 去重、逐个对照预期、有 ❌ 返回退出码 1）：
+**查子代理实际用了什么模型**——这是唯一可信的验证方式，不要靠界面显示或询问模型自己。首选 `automode-check.js`（按 `message.id` 去重、逐个对照预期、有 ❌ 返回退出码 1）：
 
 ```bash
-node ~/.claude/plugins/model-router/dev-check.js                 # 当前会话（读 CLAUDE_CODE_SESSION_ID）
-node ~/.claude/plugins/model-router/dev-check.js --from 1760000000  # 只看这个时间戳之后有活动的记录（/dev 开工时 date +%s 记下）
-node ~/.claude/plugins/model-router/dev-check.js --since 90      # 同上，换算成最近 90 分钟
-node ~/.claude/plugins/model-router/dev-check.js --session ff02  # 指定会话
-node ~/.claude/plugins/model-router/dev-check.js --from 1760000000 --full  # 没问题也打完整表（/dev 最后汇报用）
+node ~/.claude/plugins/model-router/automode-check.js                 # 当前会话（读 CLAUDE_CODE_SESSION_ID）
+node ~/.claude/plugins/model-router/automode-check.js --from 1760000000  # 只看这个时间戳之后有活动的记录（/automode 开工时 date +%s 记下）
+node ~/.claude/plugins/model-router/automode-check.js --since 90      # 同上，换算成最近 90 分钟
+node ~/.claude/plugins/model-router/automode-check.js --session ff02  # 指定会话
+node ~/.claude/plugins/model-router/automode-check.js --from 1760000000 --full  # 没问题也打完整表（/automode 最后汇报用）
 ```
 
-没有 ❌ 和 ⚠ 时只打一行：各角色个数，加上「主会话当前上下文」（最后一次调用送进去的 token 数）。有问题才打完整表。一轮 /dev 要跑一二十次，整表每次进主会话约 1 万 token，全是重复的 ✅。dev.md 用这个上下文数判断：审查报告落盘后，上下文超过 300k 时附一行现成的 `/compact`，只给不催。
+没有 ❌ 和 ⚠ 时只打一行：各角色个数，加上「主会话当前上下文」（最后一次调用送进去的 token 数）。有问题才打完整表。一轮 /automode 要跑一二十次，整表每次进主会话约 1 万 token，全是重复的 ✅。automode.md 用这个上下文数判断：审查报告落盘后，上下文超过 300k 时附一行现成的 `/compact`，只给不催。
 
-它判定的规则和 dev.md「模型路由」一节一一对应：
+它判定的规则和 automode.md「模型路由」一节一一对应：
 
 - planner-fable 必须是 fable、code-reviewer 必须是 opus、其余必须是 sonnet，家族不对判 ❌；给前两个传了 model 参数但实际家族正确的，只报 ⚠（违反规矩、结果没错，不用重跑）
 - 实际版本必须等于 env 当前钉的版本，对不上报 ⚠（有地方写死了旧版本号，或会话中途改过 env）
@@ -471,19 +471,19 @@ doctor 会在 CLI 已知某族更新代号、而你的 env 还钉在旧代号时
 
 ```bash
 cp ~/.claude/settings.json.pre-model-router.20260907 ~/.claude/settings.json
-rm ~/.claude/commands/dev.md \
+rm ~/.claude/commands/automode.md \
    ~/.claude/commands/plan-fable.md \
    ~/.claude/agents/planner-fable.md \
    ~/.claude/agents/code-reviewer.md
 ```
 
-**四个要一起删**：只删 agent 不删 `dev.md`，`/dev` 还在却会报 `Agent type not found`。删掉 agent 后同样要重启才会从列表里消失。只想退回上一版 `dev.md`，用 `~/.claude/commands/dev.md.bak-<日期>`。
+**四个要一起删**：只删 agent 不删 `automode.md`，`/automode` 还在却会报 `Agent type not found`。删掉 agent 后同样要重启才会从列表里消失。只想退回上一版 `automode.md`，用 `~/.claude/commands/automode.md.bak-<日期>`。
 
 ---
 
 ## 已知边界
 
-- **主会话不会自动换模型**。CLI 没有任何 hook 输出字段能切换模型（已核查 `claude.exe` 2.1.241），所以分阶段换模型全靠子代理：`/dev` 自动派，分步模式手动触发。唯一内置的自动切换是 `model: "opusplan"`（plan 模式用 Opus、其余用 Sonnet）——但它锁死 Opus，用不了 Fable，故未采用。
+- **主会话不会自动换模型**。CLI 没有任何 hook 输出字段能切换模型（已核查 `claude.exe` 2.1.241），所以分阶段换模型全靠子代理：`/automode` 自动派，分步模式手动触发。唯一内置的自动切换是 `model: "opusplan"`（plan 模式用 Opus、其余用 Sonnet）——但它锁死 Opus，用不了 Fable，故未采用。
 - **规划走子代理的代价**：子代理看不到主会话上下文，背景要靠任务描述带过去；交互是往返式而非实时对话；走不了正式的 plan 流程和 `ExitPlanMode`。换来的是真正跑在 Fable 上 + 约 1/8 的 token 开销。
 - **`modelSettings` 的键**走别名规范化，写 `sonnet` / `opus` / `fable` / `haiku` 即可，不必写完整 model ID。
 - **command frontmatter 的 `agent:` 字段**（解析结构里确认存在）也许能直接声明用哪个 agent 跑，未验证。当前靠正文指示，是确定可行的路径。
@@ -511,7 +511,7 @@ rm ~/.claude/commands/dev.md \
 ### 按杠杆排序（09-15 修订）
 
 1. **控制单个子代理的规模**（当前最大杠杆）。子代理上下文只增不减、没有 `/clear`，跑成 200+ 次调用的巨兽时每次调用成本翻 2.6 倍。三周里 6 个超标子代理合计 45.82M EIU ≈ $188。详见下面的度量衡一节。
-2. **任务之间新开会话**。平均上下文 400k → 100k。⚠️ 但**追加需求不必赶用户去开新会话**——接住它、记进交接文档留到下一轮即可（`dev.md` 阶段 0）。
+2. **任务之间新开会话**。平均上下文 400k → 100k。⚠️ 但**追加需求不必赶用户去开新会话**——接住它、记进交接文档留到下一轮即可（`automode.md` 阶段 0）。
 3. **把读文件的活交给子代理**。这正是 `planner-fable` / `code-reviewer` 的价值——不只是"用对模型"，更是**抑制主上下文膨胀速度**。
 4. **确认 `[1M]` 后缀的计价**。Anthropic 官方对超 200k 的部分有溢价（input 翻倍）。若平均上下文 398k，则全程在溢价区间。中转站是否照此计价需向其确认。
 
@@ -576,14 +576,14 @@ node usage-audit.js --project <目录名>   # 只看某个项目
 | **命中率** = `cr/(cr+cw)` | 缓存效率 | ❌ 越高越好 |
 | **主会话占比** | 有没有把活派出去 | 无绝对好坏 |
 
-外加 **TTL 重建次数**（间隔 >5min 且 `cw>100k` 且 `cr=0` 的全量重建）——这是 dev 模式的固有开销：主会话等子代理时 5 分钟 prompt cache TTL 必然过期。09-30 起主会话改成 1h TTL（见下文「缓存 TTL」），这一项应大幅下降；跟之前的数据比时记得这个变量。
+外加 **TTL 重建次数**（间隔 >5min 且 `cw>100k` 且 `cr=0` 的全量重建）——这是 automode 模式的固有开销：主会话等子代理时 5 分钟 prompt cache TTL 必然过期。09-30 起主会话改成 1h TTL（见下文「缓存 TTL」），这一项应大幅下降；跟之前的数据比时记得这个变量。
 
 ### 三周实测（`--days 22`）
 
 | 期间 | 平均 EIU/h | 平均 $/h | 日均 $ |
 |---|---|---|---|
 | 纯 Opus（08-24~09-04，10 天） | 5.87 | **$32.9** | $244 |
-| dev 模式（09-07~09-15，7 天） | 5.03 | **$25.3** | $198 |
+| automode 模式（09-07~09-15，7 天） | 5.03 | **$25.3** | $198 |
 | **改善** | **−14%** | **−23%** | −19% |
 
 > `EIU/h` 只降 14%、`$/h` 降 23%——差额那 9pp 来自模型分配（Sonnet 单价低）。
@@ -602,7 +602,7 @@ node usage-audit.js --project <目录名>   # 只看某个项目
 
 最坏一例：09-15「构建 S9 P0 demo」——304 次调用、5h11m、上下文 31k→**703k**、17.61M EIU ≈ $72，占当天 39%，比整个主会话还多。工具分布 `Bash=112 Edit=92 Read=58`，即**在长时间反复调试**。
 
-`dev.md` 阶段 3 已据此加入规模上限与收工条款。
+`automode.md` 阶段 3 已据此加入规模上限与收工条款。
 
 ---
 
@@ -610,7 +610,7 @@ node usage-audit.js --project <目录名>   # 只看某个项目
 
 **TTL = 缓存保鲜期。** 保鲜期内再发请求读缓存（0.1×），过期就整段重写（1.25×）。走 API key / 中转站默认 **5 分钟**，订阅用户默认 1 小时。
 
-dev 模式里主会话派活后要干等 10–30 分钟，5 分钟必过期——子代理一回来整段上下文全价重写，这就是报表里「TTL 重建」那列（占主会话缓存写入 63–89%）。
+automode 模式里主会话派活后要干等 10–30 分钟，5 分钟必过期——子代理一回来整段上下文全价重写，这就是报表里「TTL 重建」那列（占主会话缓存写入 63–89%）。
 
 1 小时的代价是**每次写入从 1.25× 涨到 2×**。`usage-audit.js --ttl-sim` 回放 16 天历史：
 
@@ -631,12 +631,12 @@ dev 模式里主会话派活后要干等 10–30 分钟，5 分钟必过期—�
 
 ## 模型换代：只改 env 一处
 
-agent 文件和 `dev.md` 全用别名，版本由 env 决定：
+agent 文件和 `automode.md` 全用别名，版本由 env 决定：
 
 ```
 planner-fable.md   model: fable    ─┐
 code-reviewer.md   model: opus     ─┼─→ ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET}_MODEL → 实际版本
-dev.md 派实现代理  model: "sonnet"  ─┘
+automode.md 派实现代理  model: "sonnet"  ─┘
 ```
 
 新模型上线时改对应那一行（连同 `_NAME`，保留 `[1M]`），主会话和所有子代理下个会话一起切。**别在 agent 文件里写死版本号。**
@@ -650,6 +650,6 @@ dev.md 派实现代理  model: "sonnet"  ─┘
 - **扫四个流程文件里有没有写死的版本号**（`claude-<家族>-<数字>`，快速模式也查）：有就提醒改成别名
 - **查 env 钉的模型在 `usage-audit.js` 单价表里有没有价**（快速模式也查）：没有就按默认价估，账面会偏。10-09 sonnet-5-5 上线后没进表，按 $5.00 估了一周（sonnet-5 是 $4.10），sonnet 那部分虚高 22%
 
-每轮 `/dev` 结束还会跑 `dev-check.js`，逐个子代理核对实际版本是否等于 env 当前钉的——env 改了但某个角色还停在旧版，当轮就会报出来。
+每轮 `/automode` 结束还会跑 `automode-check.js`，逐个子代理核对实际版本是否等于 env 当前钉的——env 改了但某个角色还停在旧版，当轮就会报出来。
 
 ⚠️ 09-30 修掉一个漏报：原先用 `startsWith` 判「已知模型」，`"claude-opus-5-5".startsWith("claude-opus-5")` 为真，换代新模型被当成已知。
