@@ -37,7 +37,7 @@ const EXPECTED = {
     { p: path.join(CLAUDE_DIR, 'agents', 'planner-fable.md'), model: 'fable' },
     { p: path.join(CLAUDE_DIR, 'agents', 'code-reviewer.md'), model: 'opus' },
     { p: path.join(CLAUDE_DIR, 'commands', 'plan-fable.md'), model: null },
-    { p: path.join(CLAUDE_DIR, 'commands', 'automode.md'), model: null },
+    { p: path.join(CLAUDE_DIR, 'commands', 'route.md'), model: null },
   ],
 };
 
@@ -226,8 +226,8 @@ if (pinnedHits.length) {
 } else {
   ok('流程文件里没有写死模型版本号（只用别名）');
 }
-if (!fs.existsSync(path.join(__dirname, 'automode-check.js'))) {
-  err('缺 automode-check.js', '/automode 靠它核实每个子代理实际跑的模型，从插件仓库恢复');
+if (!fs.existsSync(path.join(__dirname, 'route-check.js'))) {
+  err('缺 route-check.js', '/route 靠它核实每个子代理实际跑的模型，从插件仓库恢复');
 }
 
 // usage-audit 的单价表跟不上换代：没进表的模型按 _default 估，账面会偏（10-09 sonnet-5-5 虚高 22% 一周没人发现）
@@ -483,7 +483,7 @@ function checkTranscripts() {
     if (!s) continue;
     if (bareId(s.id) === p.id) matched.push(`${p.fam} → ${s.id}（${day(s.ts)}）`);
     else warn(`最近一次 ${p.fam} 子代理（${day(s.ts)}）实际跑的是 ${s.id}，env 现在钉的是 ${p.id}`,
-              '那之后还没跑过 /automode 就属正常（改 env 之前的记录）；跑过还这样 = 子代理没跟上新版，检查 agent 文件是不是写死了版本号');
+              '那之后还没跑过 /route 就属正常（改 env 之前的记录）；跑过还这样 = 子代理没跟上新版，检查 agent 文件是不是写死了版本号');
   }
   if (matched.length) ok(`子代理实测版本与 env 一致：${matched.join('，')}`);
 

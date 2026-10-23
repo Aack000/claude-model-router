@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * automode-clean —— 删 /automode 的过程文件，不经 auto 模式分类器（使用方 10-22 授权设置）
+ * route-clean —— 删 /route 的过程文件，不经 auto 模式分类器（使用方 10-22 授权设置）
  *
  * 用法（单独一次调用，前面别拼 `cd …&&`、后面别接管道，否则不命中放行规则）：
- *   node ~/.claude/plugins/model-router/automode-clean.js <目录>             删该目录下全部过程文件
- *   node ~/.claude/plugins/model-router/automode-clean.js <目录> <文件名…>    只删这几个（阶段 5「已完成包的 handoff」）
+ *   node ~/.claude/plugins/model-router/route-clean.js <目录>             删该目录下全部过程文件
+ *   node ~/.claude/plugins/model-router/route-clean.js <目录> <文件名…>    只删这几个（阶段 5「已完成包的 handoff」）
  *
  * 为什么要它：auto 模式分类器的快速判定那一档会直接拦 `rm`。10-22 删 `_patch_tmp/dev-1022/` 下的
- * `.automode-plan.md`、`.automode-handoff-*.md` 被拦，用户级 `autoMode.allow` 写明了放行这类文件也没用。
+ * `.route-plan.md`、`.route-handoff-*.md` 被拦，用户级 `autoMode.allow` 写明了放行这类文件也没用。
  * 放行规则命中就不走分类器，所以给它配一条（用户级 settings.json）：
- *   Bash(node ~/.claude/plugins/model-router/automode-clean.js *)
+ *   Bash(node ~/.claude/plugins/model-router/route-clean.js *)
  * 这条不会被 auto 模式当成「危险规则」摘掉：CLI 只摘 `node -e …` 这种解释器加横杠参数的写法。
- * 这套设置分类器不让 Claude 自己做（写工具、改 automode.md 都被拦），是使用方临时切出 auto 后批准完成的。
+ * 这套设置分类器不让 Claude 自己做（写工具、改 route.md 都被拦），是使用方临时切出 auto 后批准完成的。
  *
  * 安全边界全在这里，规则才敢放宽到任意参数：
- *   - 只认三种文件名：.automode-plan.md、.automode-plan-<名>.md、.automode-handoff-<名>.md；规划备份 *.bak-* 匹配不上
+ *   - 只认三种文件名：.route-plan.md、.route-plan-<名>.md、.route-handoff-<名>.md；规划备份 *.bak-* 匹配不上
  *   - 只看给定目录这一层，文件名里带路径分隔符直接拒绝；只删普通文件，不删目录、不跟符号链接
  *   - 被 git 跟踪的跳过（删跟踪文件要使用方自己来）
  */
@@ -24,11 +24,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const PATTERN = /^\.automode-(plan(-[\w.-]+)?|handoff-[\w.-]+)\.md$/;
+const PATTERN = /^\.route-(plan(-[\w.-]+)?|handoff-[\w.-]+)\.md$/;
 
 const [dirArg, ...names] = process.argv.slice(2);
 if (!dirArg) {
-  console.error('用法：node automode-clean.js <目录> [文件名…]');
+  console.error('用法：node route-clean.js <目录> [文件名…]');
   process.exit(2);
 }
 const dir = path.resolve(dirArg);
@@ -38,7 +38,7 @@ if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
 }
 for (const n of names) {
   if (n !== path.basename(n) || n.includes('/') || n.includes('\\') || !PATTERN.test(n)) {
-    console.error(`拒绝：「${n}」不是过程文件名（只认 .automode-plan.md、.automode-plan-*.md、.automode-handoff-*.md，且不带路径）`);
+    console.error(`拒绝：「${n}」不是过程文件名（只认 .route-plan.md、.route-plan-*.md、.route-handoff-*.md，且不带路径）`);
     process.exit(2);
   }
 }
