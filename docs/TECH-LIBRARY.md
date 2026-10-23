@@ -6,7 +6,7 @@
 
 ## 1. 跨供应商 / 跨宿主通用化（2026-09-30，搁置）
 
-**状态**：只调研、没写代码。用户暂时只有 Claude 系模型，跨家方案没法实测；先完善 `/automode`，有第二家的 key 或 Coding Plan 时再重启。
+**状态**：只调研、没写代码。用户暂时只有 Claude 系模型，跨家方案没法实测；先完善 `/route`，有第二家的 key 或 Coding Plan 时再重启。
 
 ### 目标（按优先级）
 
@@ -21,7 +21,7 @@
 | 目标 | 做法 | 我们要写的 |
 |---|---|---|
 | 第二级（同一家） | **CC Switch 快照就够**：四个别名（含 FABLE）映射到这家的模型 | 零代码；可选让 doctor / usage-audit 认得非 Claude 模型 |
-| 第一级（跨家） | **各家自有 harness，经 ACP 统一驱动（acpx）为主**；CCR 兜底 | `/automode` 里一种「外部阶段」执行方式 + 一张「阶段 → agent」配置表 |
+| 第一级（跨家） | **各家自有 harness，经 ACP 统一驱动（acpx）为主**；CCR 兜底 | `/route` 里一种「外部阶段」执行方式 + 一张「阶段 → agent」配置表 |
 | Codex 附加分 | acpx 与宿主无关，Codex 里同样能调 | 同一份流程说明出两份宿主适配 |
 
 **为什么第一级不走 CCR 为主**：最初选的是 CCR（所有模型都在 Claude Code 里跑，我们零代码）。但主流几家现在都有自己调过的 harness，模型在自家工具里才发挥得出真实水平；而「每接一家写一个适配」的维护难题，ACP + acpx 已经解决了。CCR 留给「既没自家 harness、又没 Anthropic 兼容端点」的供应商。
@@ -67,7 +67,7 @@ acpx <agent> ... --format quiet      # 只输出最终回答
 - **Codex**：`~/.codex/agents/*.toml` 能按代理设 model 和 reasoning_effort，**不能按代理设供应商**（openai/codex#47752、#14039）；第三方必须走 Responses API；**Windows 上子代理专属配置不生效（#19399）**
 - `x-claude-code-agent-type` 请求头对自定义代理一律报 `custom`，分不开 planner 和 reviewer
 
-### 外部阶段放进 `/automode` 时要解决的
+### 外部阶段放进 `/route` 时要解决的
 
 - **Bash 工具单次最多 10 分钟**，实现阶段常 30 分钟以上 → 必须 `run_in_background`，完成时再通知主会话
 - 续聊从 `SendMessage` 换成 `acpx -s <会话名>`
@@ -102,13 +102,13 @@ acpx <agent> ... --format quiet      # 只输出最终回答
 
 ---
 
-## 2. 把 /automode 迁到 Codex（2026-10-22，搁置）
+## 2. 把 /route 迁到 Codex（2026-10-22，搁置）
 
 **状态**：只调研、没写代码。用户问「移植到 Codex 该怎么做」，看完结论后选「模型来源还没想好、暂不动手」。这一节是第 1 节「Codex 附加分」的展开。
 
 ### 结论
 
-**技术上可行，现在不具备条件。** Codex 的 skill、插件、子代理、钩子都齐了，结构能一一对应。但 /automode 的核心「分阶段用不同模型」被两件事卡住：用户手上只有 Claude 模型；Windows 上子代理配置不生效（#19399）。照现在的条件搬过去，得到的是流程完整、但每个阶段都跑在同一个默认模型上的 /automode。
+**技术上可行，现在不具备条件。** Codex 的 skill、插件、子代理、钩子都齐了，结构能一一对应。但 /route 的核心「分阶段用不同模型」被两件事卡住：用户手上只有 Claude 模型；Windows 上子代理配置不生效（#19399）。照现在的条件搬过去，得到的是流程完整、但每个阶段都跑在同一个默认模型上的 /route。
 
 能原样带走的是规矩（决策权 S1–S7、审查报告落盘、收工条款）；靠换便宜模型省钱的那部分，要等模型来源定了才谈得上。
 
@@ -116,26 +116,26 @@ acpx <agent> ... --format quiet      # 只输出最终回答
 
 | 现在（Claude Code） | Codex | 能否直接搬 |
 |---|---|---|
-| `commands/automode.md`、`plan-fable.md` | skill：`skills/<名>/SKILL.md`，用 `$automode` 调用；关自动触发用 `agents/openai.yaml` 的 `policy.allow_implicit_invocation: false` | ✅ 约 70 处 Claude 专有写法要改写（`Agent`、`SendMessage`、`AskUserQuestion`、`TaskCreate`、模型别名） |
+| `commands/route.md`、`plan-fable.md` | skill：`skills/<名>/SKILL.md`，用 `$route` 调用；关自动触发用 `agents/openai.yaml` 的 `policy.allow_implicit_invocation: false` | ✅ 约 70 处 Claude 专有写法要改写（`Agent`、`SendMessage`、`AskUserQuestion`、`TaskCreate`、模型别名） |
 | `agents/planner-fable.md`、`code-reviewer.md` | `~/.codex/agents/*.toml`：必填 `name`、`description`、`developer_instructions`，可设 `model`、`model_reasoning_effort` | ⚠ Windows 上不生效 |
 | 实现阶段（派 sonnet） | 内置 `worker`（另有 `default`、`explorer`）；`config.toml` 的 `[agents]` 下有 `default_subagent_model`、`default_subagent_reasoning_effort`、`max_threads` | ✅ |
 | `CLAUDE.md` | `AGENTS.md` | ✅ |
 | SessionStart 钩子 | `hooks/hooks.json`，格式接近 Claude Code；装完要在 `/hooks` 里点信任 | ✅ |
 | `.claude-plugin/plugin.json` | `.codex-plugin/plugin.json`；市场是 `.agents/plugins/marketplace.json`，用 `codex plugin marketplace add`、`codex plugin add` 安装 | ✅ |
-| `automode-check`、`usage-audit`、`doctor` | 没有对应物 | ❌ 读的是 `~/.claude/projects`，要改读 `~/.codex/sessions` |
+| `route-check`、`usage-audit`、`doctor` | 没有对应物 | ❌ 读的是 `~/.claude/projects`，要改读 `~/.codex/sessions` |
 
 ### 阻碍（10-22 核过）
 
 1. **模型来源**：子代理只能沿用主会话的同一个供应商（#47752，还开着）。要么全用 OpenAI 自家模型（要 OpenAI 账号），要么通过网关跑 Claude 模型（要 所用的中转站 提供 OpenAI Responses 兼容接口，未知）。
 2. **Windows bug**：子代理 TOML 被忽略，按默认配置起来（#19399，还开着，最后更新 07-28）。社区绕法是主代理读出 TOML、派活时显式传入指令、模型、档位，未实测。
-3. **automode-check 必须重写**：不然第 2 条那种静默跑错模型发现不了。
-4. **质量未知**：非 Claude 模型能不能守住 /automode 的规矩，只能实跑。
+3. **route-check 必须重写**：不然第 2 条那种静默跑错模型发现不了。
+4. **质量未知**：非 Claude 模型能不能守住 /route 的规矩，只能实跑。
 
 ### 三条路线
 
 | 路线 | 做法 | 现在能做吗 | 工作量 |
 |---|---|---|---|
-| A. 整体迁到 Codex | skill + TOML 子代理 + 重写 automode-check，打包成插件 | ❌ 卡在阻碍 1、2 | 3–5 天：最小验证半天、流程改写和 TOML 1 天、automode-check 半天到 1 天、打包半天、实跑看质量 1–2 天；usage-audit、doctor 往后放 |
+| A. 整体迁到 Codex | skill + TOML 子代理 + 重写 route-check，打包成插件 | ❌ 卡在阻碍 1、2 | 3–5 天：最小验证半天、流程改写和 TOML 1 天、route-check 半天到 1 天、打包半天、实跑看质量 1–2 天；usage-audit、doctor 往后放 |
 | B. 留在 Claude Code、调用 Codex | 用 codex-plugin-cc 把 Codex 当成一个阶段（比如加一道 GPT 审查） | ⚠ 一样要 OpenAI 账号 | 约半天 |
 | C. 一份流程、两个宿主 | 按第 1 节：维护一份流程说明，生成两个宿主的版本，外部阶段经 acpx 调用 | ❌ 前提同 A | 1–2 天搭机制，加上 A 的 Codex 适配 |
 

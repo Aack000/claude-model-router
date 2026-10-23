@@ -1,8 +1,8 @@
 # 运行时产物
 .last-check.json
 
-# /automode 流程在项目里生成的工作文件
-.automode-*
+# /route 流程在项目里生成的工作文件
+.route-*
 PLAN-*.md
 
 # 备份

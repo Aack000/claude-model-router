@@ -1,8 +1,8 @@
-# cc-autoworkflow
+# claude-model-router
 
 Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实现 / 查错），降低 token 开销同时控制 bug 率。
 
-日常只需要一条命令：**`/automode <任务>`** —— 它把三个阶段串起来自动跑完：
+日常只需要一条命令：**`/route <任务>`** —— 它把三个阶段串起来自动跑完：
 
 | 阶段 | 模型 | 跑在哪 |
 |---|---|---|
@@ -21,20 +21,20 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 1. **单价差**：占 token 绝大头的执行阶段（读文件、跑命令、写代码）从 Opus 换成 Sonnet。
 2. **上下文不膨胀**：审查跑在子代理里，读的一大堆文件留在子代理的上下文，**只有结论回主会话**。
 
-而 Fable 和 Opus 给到最高档 effort——规划质量直接决定 Sonnet 会不会写错，钱花在这里才划算。每轮跑完用 `automode-check.js` 核实每个子代理**实际**跑的模型，防止静默跑错。
+而 Fable 和 Opus 给到最高档 effort——规划质量直接决定 Sonnet 会不会写错，钱花在这里才划算。每轮跑完用 `route-check.js` 核实每个子代理**实际**跑的模型，防止静默跑错。
 
 ## 仓库结构
 
 ```
 .claude-plugin/plugin.json     插件清单
-commands/automode.md           /automode 一站式流程（权威说明）
+commands/route.md           /route 一站式流程（权威说明）
 commands/plan-fable.md         /plan-fable 单独规划
 agents/planner-fable.md        规划子代理（frontmatter 钉模型）
 agents/code-reviewer.md        审查子代理
-automode-check.js              每轮结束后核实子代理实际跑的模型
+route-check.js              每轮结束后核实子代理实际跑的模型
 doctor.js                      配置体检（网关、别名、孤儿键等）
 usage-audit.js                 用量统计（价格基线在 usage-baseline.json）
-automode-clean.js              清理 /automode 过程文件
+route-clean.js              清理 /route 过程文件
 docs/GUIDE.md                  详细文档（安装、实测结论、成本分析、验证、升级）
 docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等暂缓方向）
 ```
@@ -46,7 +46,7 @@ docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等�
 1. **取文件**：把本仓库克隆（或下载解压）到 `~/.claude/plugins/model-router/`：
 
    ```bash
-   git clone https://github.com/Aack000/cc-autoworkflow.git "$HOME/.claude/plugins/model-router"
+   git clone https://github.com/Aack000/claude-model-router.git "$HOME/.claude/plugins/model-router"
    ```
 
 2. **命令与子代理**，二选一：
@@ -69,14 +69,14 @@ docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等�
 
 3. **settings.json**：按 [GUIDE #安装](docs/GUIDE.md) 配置模型别名与 effort（`modelSettings`、`autoCompactWindow`、删掉 `CLAUDE_CODE_SUBAGENT_MODEL` 等）。这一步插件管不了，必须手动改。
 
-> `automode-check.js` / `doctor.js` / `usage-audit.js` 按插件目录路径调用。若你把仓库克隆到了别的位置，请同步修改 `commands/automode.md` 里的调用路径，或保持默认路径不变。
+> `route-check.js` / `doctor.js` / `usage-audit.js` 按插件目录路径调用。若你把仓库克隆到了别的位置，请同步修改 `commands/route.md` 里的调用路径，或保持默认路径不变。
 
-装完先跑 `node doctor.js` 做一次配置体检；再跑一轮 `/automode` 后用 `node automode-check.js` 核实各子代理实际跑的模型。
+装完先跑 `node doctor.js` 做一次配置体检；再跑一轮 `/route` 后用 `node route-check.js` 核实各子代理实际跑的模型。
 
 ## 用法
 
 ```text
-/automode 给用户列表加分页       # 一站式：规划 → 实现 → 审查 → 汇报
+/route 给用户列表加分页       # 一站式：规划 → 实现 → 审查 → 汇报
 /plan-fable 重构数据层           # 只出规划，不实现
 ```
 
@@ -85,7 +85,7 @@ docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等�
 ## 依赖要求
 
 - Claude Code CLI（本方案在 2.1.276 实测）
-- Node.js（跑 `doctor.js` / `automode-check.js` / `usage-audit.js`）
+- Node.js（跑 `doctor.js` / `route-check.js` / `usage-audit.js`）
 - 模型别名 `fable` / `sonnet` / `opus` 可用（由 `settings.json` 的 `ANTHROPIC_DEFAULT_*_MODEL` 决定，具体见 GUIDE）
 
 ## 文档
