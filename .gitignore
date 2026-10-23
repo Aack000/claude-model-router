@@ -1,0 +1,10 @@
+# 运行时产物
+.last-check.json
+
+# /dev 流程在项目里生成的工作文件
+.dev-*
+PLAN-*.md
+
+# 备份
+*.bak-*
+code-review-*.md
