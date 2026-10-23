@@ -454,7 +454,7 @@ doctor 会在 CLI 已知某族更新代号、而你的 env 还钉在旧代号时
 ```json
 {
   "type": "command",
-  "command": "node \"C:\\Users\\Administrator\\.claude\\plugins\\model-router\\doctor.js\" --quick --quiet",
+  "command": "node \"%USERPROFILE%\\.claude\\plugins\\model-router\\doctor.js\" --quick --quiet",
   "timeout": 10
 }
 ```

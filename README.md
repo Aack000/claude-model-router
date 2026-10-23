@@ -33,7 +33,7 @@ agents/planner-fable.md        规划子代理（frontmatter 钉模型）
 agents/code-reviewer.md        审查子代理
 route-check.js              每轮结束后核实子代理实际跑的模型
 doctor.js                      配置体检（网关、别名、孤儿键等）
-usage-audit.js                 用量统计（价格基线在 usage-baseline.json）
+usage-audit.js                 用量统计（价格口径内置；基线用 --baseline 自行生成，不入库）
 route-clean.js              清理 /route 过程文件
 docs/GUIDE.md                  详细文档（安装、实测结论、成本分析、验证、升级）
 docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等暂缓方向）
