@@ -17,7 +17,7 @@
  * 卡片里四个别名的 _MODEL 去掉 [1M] 之类后缀后不以 claude- 开头的，算第三方模型：
  *   缺 _SUPPORTED_CAPABILITIES → 补供应商文件里同一别名的值（没有就用文件里任意一个别名的）；缺 _NAME → 补去掉后缀的模型 ID。
  *   已有的键一律不改。主机名认不出的卡片只列出来、不动。
- * 当前卡片（CC Switch 里选中的）的真实配置是本机 ~/.claude/settings.json，数据库里那份只是副本，补的时候以本机文件为准：
+ * 当前卡片（CC Switch 里选中的）的真实配置是本机 ~/.claude/settings.json（设了 CLAUDE_CONFIG_DIR 就是那个目录下的），数据库里那份只是副本，补的时候以本机文件为准：
  *   本机缺、要补的键，数据库副本也缺就两边一起补；本机已有的键（不管什么值），副本缺也不补、不记——
  *   用户可能在 CC Switch 编辑框里自己加过（编辑框写的是本机文件、不回写副本），切走时 CC Switch 会用本机文件回填副本。
  * 没有 CC Switch 数据库就只处理本机 settings.json。
@@ -48,7 +48,9 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
 
-const CLAUDE = path.join(os.homedir(), '.claude');
+// 配置目录和 Claude Code 一样认 CLAUDE_CONFIG_DIR，没设就是 ~/.claude（各脚本各自内联这一行，单个脚本被拷走也能用）。
+// CC Switch 的库仍在 ~/.cc-switch（CC Switch 自己的目录，和 CLAUDE_CONFIG_DIR 无关）
+const CLAUDE = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(os.homedir(), '.claude');
 const SETTINGS = path.join(CLAUDE, 'settings.json');
 const MANIFEST = path.join(CLAUDE, 'plugins', 'model-router', '.install-manifest.json');
 const DEFAULT_DB = path.join(os.homedir(), '.cc-switch', 'cc-switch.db');

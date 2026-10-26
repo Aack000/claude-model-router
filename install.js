@@ -9,6 +9,9 @@
  *   --dry-run             只列出会做什么，不改任何文件
  *
  * 做三件事，都能用 uninstall.js 撤回：
+ * 配置目录 = 环境变量 CLAUDE_CONFIG_DIR（和 Claude Code 一样），没设就是 ~/.claude；下面写的 ~/.claude 都指它。
+ * 换了位置（CLAUDE_CONFIG_DIR 不是 ~/.claude）时，命令文件里和放行规则里的脚本路径写成插件目录的绝对路径（正斜杠；
+ * 含空格等字符时整条脚本路径加双引号），两边同形，规则才匹配得上；默认位置仍写 ~/.claude/plugins/model-router，已装用户的规则和命令文件不变。
  *   1. 插件文件 → ~/.claude/plugins/model-router/（脚本、文档、commands / agents 原件、安装入口）。
  *      从别处（克隆的仓库、解压出来的目录）跑：复制过去。从插件目录自己跑，分两种，开头会打印走了哪种：
  *      · 副本模式：目录里没有 .git，且上次安装清单里的插件文件记录至少 1 条、这些文件全都还在、内容和记录的一模一样
@@ -16,7 +19,7 @@
  *      · 原地模式：其余情况——克隆的仓库就在这里，或把发布包解压进了这个目录（第一次装、清单里没有插件文件记录、
  *        解压覆盖过新版、手改过插件文件，都归这里）。不复制插件文件、不记进清单，命令和子代理按目录里现有的文件部署，
  *        只排除已知的旧版文件名（见 LEGACY）。所以卸载时这些插件文件不会被删，要删自己删整个目录
- *   2. commands/*.md → ~/.claude/commands/，agents/*.md → ~/.claude/agents/。
+ *   2. commands/*.md → ~/.claude/commands/，agents/*.md → ~/.claude/agents/（换了位置时正文里的脚本路径按上面的写法换过，清单记的 sha 是换过之后的）。
  *      目标已存在且内容不同的，先备份成 <原名>.bak-<时间>；上次安装放进去、之后没被改过的直接覆盖（升级）。
  *      上一版装过、这一版没有的文件：没被改过的删掉，被改过的留着只提示（都不再进清单）；
  *      本次部署的目标、源目录 commands/ agents/ 里还有同名文件的目标，一律不删
@@ -27,9 +30,11 @@
  *      settings.json 先备份；只动 permissions.allow，env 不打印，写完核对 env 和其余配置一字不差。
  *      规则只能由用户自己加：Claude 在 auto 模式下给自己放权会被拦，这也是本脚本要用户亲手跑的原因。
  *
- * 不做的：modelSettings、autoCompactWindow、ANTHROPIC_DEFAULT_*_MODEL 因人而异，按 docs/GUIDE.md 手动配。
+ * 不做的：modelSettings、autoCompactWindow、ANTHROPIC_DEFAULT_*_MODEL 因人而异，本脚本不碰。装完接着跑 configure.js 配
+ * （安装入口菜单 1 会串着跑：安装 → 配置 → 体检；菜单 5 只配置 + 体检；手动配见 docs/GUIDE.md）。
+ * 串着跑时安装入口会设环境变量 MR_SETUP_FLOW（后面还要跑哪几步，逗号分隔），本脚本据此决定结尾的「下一步」怎么写。
  * 可选的另一步：ccswitch-caps.js（安装入口菜单 4）给 CC Switch 里第三方模型的卡片补能力声明；它补过什么记在清单的 ccswitchCaps 里，
- * 重装原样带着，卸载时按它撤回。
+ * configure.js 配过什么记在 settingsChanges 里；重装都原样带着，卸载时按它们撤回。
  * Windows / macOS / Linux 通用，只要有 Node.js。装完要重启 Claude Code，新的 agent 才会加载。
  */
 
@@ -37,27 +42,52 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const readline = require('readline');
 
 const SRC = __dirname;
-const CLAUDE = path.join(os.homedir(), '.claude');
+// 配置目录和 Claude Code 一样认 CLAUDE_CONFIG_DIR，没设就是 ~/.claude（各脚本各自内联这一行，单个脚本被拷走也能用）
+const CLAUDE = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(os.homedir(), '.claude');
 const PLUGIN = path.join(CLAUDE, 'plugins', 'model-router');
 const SETTINGS = path.join(CLAUDE, 'settings.json');
 const MANIFEST = path.join(PLUGIN, '.install-manifest.json');
 
-// 可选的放行规则。路径写 ~ 而不是绝对路径：commands/route.md 里就是这么调用的，规则按命令原文匹配
-const P = '~/.claude/plugins/model-router';
-// 不带参数的写法单列一条：拿不准 `脚本 *` 能不能匹配零个参数
+// 脚本路径的「写法」：commands/route.md 里怎么调用脚本，放行规则就得一字不差地写成什么样（规则按命令原文匹配）。
+//  · 配置目录是默认的 ~/.claude：写 ~/.claude/plugins/model-router（已装用户的放行规则和命令文件都不变）
+//  · 否则：插件目录的绝对路径、正斜杠；含空格等 shell 会拆开的字符时，整条脚本路径加双引号（~ 在引号里不展开，所以不用 ~ 形式）
+const lowerKey = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
+const IS_DEFAULT = lowerKey(CLAUDE) === lowerKey(path.join(os.homedir(), '.claude'));
+const P = IS_DEFAULT ? '~/.claude/plugins/model-router' : PLUGIN.split(path.sep).join('/');
+if (!IS_DEFAULT && /["`$\\]/.test(P)) {
+  console.error(`✗ 配置目录 ${CLAUDE} 的路径里有引号、反引号、$ 或反斜杠，命令里没法安全引用它，装了放行规则也对不上。换一个不含这些字符的目录，什么都没改。`);
+  process.exit(1);
+}
+const q = (s) => (/^[A-Za-z0-9_.\/:@%+=,~-]+$/.test(s) ? s : `"${s}"`);
+/** 脚本（插件目录下的文件）在命令里的写法 */
+const ref = (file) => q(`${P}/${file}`);
+
+// 可选的放行规则（写法见上）。不带参数的写法单列一条：拿不准 `脚本 *` 能不能匹配零个参数
 const RULES = [
   { id: 'clean', script: 'route-clean', def: true, desc: '删 /route 的过程文件（不放行的话收尾会卡在删文件上等人）',
-    rules: [`Bash(node ${P}/route-clean.js *)`] },
+    rules: [`Bash(node ${ref('route-clean.js')} *)`] },
   { id: 'check', script: 'route-check', def: true, desc: '核子代理实际跑的模型（只读；/route 每个子代理返回后都跑）',
-    rules: [`Bash(node ${P}/route-check.js)`, `Bash(node ${P}/route-check.js *)`] },
+    rules: [`Bash(node ${ref('route-check.js')})`, `Bash(node ${ref('route-check.js')} *)`] },
   { id: 'audit', script: 'usage-audit', def: false, desc: '查用量（只读）',
-    rules: [`Bash(node ${P}/usage-audit.js)`, `Bash(node ${P}/usage-audit.js *)`] },
+    rules: [`Bash(node ${ref('usage-audit.js')})`, `Bash(node ${ref('usage-audit.js')} *)`] },
   { id: 'doctor', script: 'doctor', def: false, desc: '升级后体检，只放不带参数的（--gateway 要读凭据，不放）',
-    rules: [`Bash(node ${P}/doctor.js)`] },
+    rules: [`Bash(node ${ref('doctor.js')})`] },
 ];
+
+/**
+ * 部署出去的命令 / 子代理正文：默认位置原样（返回同一个 Buffer）；换了位置，把 ~/.claude/plugins/model-router/<脚本> 换成实际写法，
+ * 和放行规则同形。只换这个插件目录的写法，正文里别的 ~/.claude/… 是说明文字，不动
+ */
+function retarget(buf) {
+  if (IS_DEFAULT) return buf;
+  const txt = buf.toString('utf8');
+  const out = txt
+    .replace(/~\/\.claude\/plugins\/model-router\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)/g, (_, f) => ref(f))   // 带脚本名的：整条脚本路径一起加引号
+    .replace(/~\/\.claude\/plugins\/model-router/g, () => q(P));   // 只写了目录的
+  return out === txt ? buf : Buffer.from(out, 'utf8');
+}
 
 // 改名前的旧版文件 [目录（相对 ~/.claude）, 文件名]：装完只提示，不动；
 // 在插件目录里就地部署（原地模式）时，也靠它把 commands / agents 里的旧版残留从源文件里排除
@@ -78,13 +108,8 @@ for (let i = 0; i < argv.length; i++) {
   process.exit(2);
 }
 
-if (process.env.CLAUDE_CONFIG_DIR && path.resolve(process.env.CLAUDE_CONFIG_DIR) !== path.resolve(CLAUDE)) {
-  console.error(`✗ 设置了 CLAUDE_CONFIG_DIR=${process.env.CLAUDE_CONFIG_DIR}，Claude Code 会去那里读配置；`
-    + '本插件的命令和放行规则写死了 ~/.claude，装了也对不上，暂不支持，什么都没改。');
-  process.exit(1);
-}
-
-const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const shaBuf = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const sha = (p) => shaBuf(fs.readFileSync(p));
 const hash = (x) => crypto.createHash('sha256').update(JSON.stringify(x ?? null)).digest('hex');
 const stamp = () => { const d = new Date(), z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`; };
 /** 备份名撞了就加 -2、-3：同一秒连跑两次，第二次不能盖掉第一次（第一次备的才是装之前的原样） */
@@ -107,23 +132,50 @@ function parseSel(s) {
   return out;
 }
 
-/** 按行读输入：终端和管道都能用；输入结束返回 null */
-const lines = [], waiters = [];
-let rl = null, ended = false;
+/**
+ * 按行读输入：终端和管道都能用；输入结束返回 null。
+ * 同步逐字节读（和 setup.js、configure.js 同一种读法）：不在 stdin 上留挂起的读，也不多吞管道里后面的行。
+ * 安装入口把「菜单 → 放行规则 → 配模型设置」串在一起，几步共用同一个 stdin；
+ * 用 readline 的话，管道里一次喂进来的几行会被这一步整块吞掉，下一步就读不到自己那一行。
+ */
 function ask(q) {
-  if (!rl) {
-    rl = readline.createInterface({ input: process.stdin, terminal: false });
-    rl.on('line', (l) => (waiters.length ? waiters.shift()(l) : lines.push(l)));
-    rl.on('close', () => { ended = true; while (waiters.length) waiters.shift()(null); });
-  }
   process.stdout.write(q);
-  if (lines.length) return Promise.resolve(lines.shift());
-  if (ended) return Promise.resolve(null);
-  return new Promise((r) => waiters.push(r));
+  const buf = Buffer.alloc(1), bytes = [];
+  for (;;) {
+    let n;
+    try { n = fs.readSync(0, buf, 0, 1, null); } catch (e) {
+      if (e.code === 'EAGAIN') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); continue; }
+      if (e.code === 'EOF') n = 0; else throw e;
+    }
+    if (n === 0) return bytes.length ? Buffer.from(bytes).toString().replace(/\r$/, '') : null;
+    if (buf[0] === 0x0a) return Buffer.from(bytes).toString().replace(/\r$/, '');
+    bytes.push(buf[0]);
+  }
 }
 
-async function main() {
+// 清单里记的是绝对路径。配置目录换过位置（复制一份做第二套配置、改名、搬家）后，旧路径指向的是别的目录：
+// 照着删会删到原来那个目录里的文件（复审 R1），照着比对会把挪过来的原样当成「改过了」（R3）。
+// 所以按记下的旧配置目录（旧清单没记 configDir 就从路径反推）把路径换到当前配置目录下；换不了的留原样，删之前还有 inCurrent 把关
+function rebaseFiles(m) {
+  if (!m || !Array.isArray(m.files)) return;
+  const fromPath = (f) => {
+    const t = String(f.target || '');
+    if (f.kind === 'plugin') { const i = t.search(/[\\/]plugins[\\/]model-router[\\/]/); return i > 0 ? t.slice(0, i) : null; }
+    return f.kind === 'command' || f.kind === 'agent' ? path.dirname(path.dirname(t)) : null;
+  };
+  const old = typeof m.configDir === 'string' && m.configDir ? m.configDir : m.files.map(fromPath).find(Boolean);
+  if (!old) return;
+  for (const f of m.files) {
+    const r = path.relative(path.resolve(old), path.resolve(String(f.target)));
+    if (r && r !== '..' && !r.startsWith(`..${path.sep}`) && !path.isAbsolute(r)) f.target = path.join(CLAUDE, r);
+  }
+}
+/** p 在不在当前配置目录里面：不在的一律不删 */
+const inCurrent = (p) => { const r = path.relative(CLAUDE, path.resolve(String(p))); return !!r && r !== '..' && !r.startsWith(`..${path.sep}`) && !path.isAbsolute(r); };
+
+function main() {
   const prev = fs.existsSync(MANIFEST) ? JSON.parse(fs.readFileSync(MANIFEST, 'utf8')) : null;
+  rebaseFiles(prev);
   // 旧版清单只记一条 rule / ruleAdded
   const prevAdded = new Set(prev?.rulesAdded || (prev?.ruleAdded && prev?.rule ? [prev.rule] : []));
   const base = Array.isArray(prev?.rules) ? new Set(prev.rules) : new Set(RULES.filter((r) => r.def).map((r) => r.id));
@@ -154,7 +206,7 @@ async function main() {
       console.log(`  [${base.has(r.id) ? 'x' : ' '}] ${i + 1} ${r.script.padEnd(11)}  ${r.desc}${has}`);
     });
     for (;;) {
-      const a = await ask('回车 = 按勾的来；输入编号 = 只要这几条（如 1 3）；0 = 一条都不要：');
+      const a = ask('回车 = 按勾的来；输入编号 = 只要这几条（如 1 3）；0 = 一条都不要：');
       if (a === null) { sel = base; console.log(`\n（没有可交互的输入，用${prev?.rules ? '上次' : '默认'}的选择：${ids(sel)}）`); break; }
       if (!a.trim()) { sel = base; break; }
       sel = parseSel(a);
@@ -162,28 +214,41 @@ async function main() {
       console.log(`看不懂「${a.trim()}」，再输一次。`);
     }
   }
-  if (rl) rl.close();
   say(`放行规则：${ids(sel)}`);
   // 等输入可能等了很久（CC Switch 切卡、用户自己改配置都会写 settings.json）：写回之前重新读，别拿开头那份旧内容把别人的改动冲掉。
   // 紧跟在选择之后、动任何文件之前读：万一这时文件坏了，「什么都没改」仍然成立
   ({ exists, raw, j, allow } = readSettings());
 
   const TS = stamp();
-  const manifest = { installedAt: new Date().toISOString(), version: null, files: [], backups: [], rules: [...sel], rulesAdded: [] };
+  // pathToken：脚本路径的写法（放行规则和部署出去的命令文件都按它写）；换了位置重装时，上次按旧写法加的规则会去掉
+  // configDir：装在哪个配置目录。以后配置目录挪了位置，靠它把清单里的绝对路径换过去（rebaseFiles）
+  const manifest = { installedAt: new Date().toISOString(), version: null, configDir: CLAUDE, files: [], backups: [], rules: [...sel], rulesAdded: [], pathToken: P };
+  if (!IS_DEFAULT) say(`配置目录：${CLAUDE}（来自 CLAUDE_CONFIG_DIR）；命令文件和放行规则里的脚本路径写成 ${P}/<脚本名>（含空格等字符时整条路径加双引号）`);
   try { manifest.version = JSON.parse(fs.readFileSync(path.join(SRC, '.claude-plugin', 'plugin.json'), 'utf8')).version; } catch { /* 没有清单也能装 */ }
   manifest.backups = (prev?.backups || []).filter((b) => fs.existsSync(b));   // 历次备份都留着，卸载时一起列出
   if (Array.isArray(prev?.ccswitchCaps)) manifest.ccswitchCaps = prev.ccswitchCaps;   // ccswitch-caps.js 补过的记录，重装不能丢
+  if (Array.isArray(prev?.settingsChanges)) manifest.settingsChanges = prev.settingsChanges;   // configure.js 配过的记录，重装不能丢（丢了卸载就撤不回）
   const oldBackups = manifest.backups.length;
   const prevSha = new Map((prev?.files || []).map((f) => [f.target, f.sha]));
+  // 整个配置目录挪过位置（改名、搬家）后，清单里记的绝对路径是旧的，按路径对不上；再按「类别 + 文件名（插件文件按插件目录内的相对路径）」认一次上次装的原样，
+  // 免得把安装器自己装的文件当成使用方的、给它们一个个做备份
+  const idKey = (kind, target) => {
+    if (kind !== 'plugin') return `${kind}:${path.basename(target)}`;
+    const r = String(target).split(/plugins[\\/]model-router[\\/]/)[1];
+    return r ? `plugin:${r.replace(/\\/g, '/')}` : null;
+  };
+  const prevShaById = new Map((prev?.files || []).map((f) => [idKey(f.kind, f.target), f.sha]).filter(([k]) => k));
 
-  /** 复制一个文件；目标已有且不是上次装的原样，就先备份 */
+  /** 复制一个文件；目标已有且不是上次装的原样，就先备份。命令 / 子代理的正文按脚本路径的写法换过（默认位置不换），清单里记的 sha 是换过之后的 */
   function place(rel, target, kind) {
     const from = path.join(SRC, rel);
-    const h = sha(from);
+    const orig = fs.readFileSync(from);
+    const data = kind === 'command' || kind === 'agent' ? retarget(orig) : orig;
+    const h = shaBuf(data);
     if (fs.existsSync(target)) {
       const cur = sha(target);
       if (cur === h) { manifest.files.push({ target, sha: h, kind }); return; }
-      if (prevSha.get(target) !== cur) {
+      if ((prevSha.get(target) ?? prevShaById.get(idKey(kind, target))) !== cur) {
         const bak = uniq(`${target}.bak-${TS}`);
         say(`备份 ${target} → ${path.basename(bak)}`);
         if (!DRY) fs.copyFileSync(target, bak);
@@ -193,7 +258,7 @@ async function main() {
     say(`${fs.existsSync(target) ? '更新' : '新增'} ${target}`);
     mkdirFor(target);
     if (!DRY) {
-      fs.copyFileSync(from, target);
+      if (data === orig) fs.copyFileSync(from, target); else fs.writeFileSync(target, data);
       if (process.platform !== 'win32' && /\.(js|sh|command)$/.test(target)) fs.chmodSync(target, 0o755);
     }
     manifest.files.push({ target, sha: h, kind });
@@ -246,7 +311,7 @@ async function main() {
   } else {
     const pluginFiles = ['.claude-plugin/plugin.json', 'README.md', 'LICENSE', 'install.js', 'uninstall.js',
       'setup.js', 'setup.cmd', 'setup.ps1', 'setup.sh', 'setup.command',
-      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'provider.js', 'ccswitch-caps.js',
+      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'provider.js', 'ccswitch-caps.js', 'configure.js',
       ...listMd('commands'), ...listMd('agents'), ...listMd('docs'), ...listMd('providers', '.json')]
       .filter((f) => fs.existsSync(path.join(SRC, f)));
     for (const f of pluginFiles) place(f, path.join(PLUGIN, f), 'plugin');
@@ -265,6 +330,7 @@ async function main() {
     if (nowTargets.has(pk(f.target))) continue;   // 本次刚部署的（含大小写不同的同一个文件），不删
     if (inPlace && f.kind === 'plugin') continue;   // 仓库自己的文件，绝不删（副本模式的已经带进新清单了）
     if (!fs.existsSync(f.target)) continue;
+    if (!inCurrent(f.target)) { say(`上一版记录的 ${f.target} 不在当前配置目录 ${CLAUDE} 里，没动`); continue; }
     // 源目录 commands/ agents/ 里还有同名文件：这一版没部署它多半是被排除了（比如旧版文件名），但源文件还在，
     // 目标是留着还是删交给使用方，安装器不替人定
     const sd = srcDirOf[f.kind];
@@ -286,10 +352,17 @@ async function main() {
       }
     }
   }
+  // 上次加的、但这次的写法里已经没有的规则（换了位置，路径写法变了）：留着就是指向旧位置的死规则，按 rulesAdded 去掉
+  const current = new Set(RULES.flatMap((e) => e.rules)), stale = [];
+  for (const r of prevAdded) {
+    if (current.has(r) || !next.includes(r)) continue;
+    next.splice(next.indexOf(r), 1); stale.push(r);
+  }
   for (const r of added) say(`settings.json 加放行规则：${r}`);
   for (const r of removed) say(`settings.json 去掉放行规则（上次安装加的，这次没选）：${r}`);
+  for (const r of stale) say(`settings.json 去掉放行规则（上次安装加的，脚本路径的写法和这次不同）：${r}`);
   for (const r of userOwn) say(`没选但保留（你原先自己加的，安装器不动）：${r}`);
-  if (!added.length && !removed.length) say('settings.json 不用改');
+  if (!added.length && !removed.length && !stale.length) say('settings.json 不用改');
   else if (!DRY) {
     const envBefore = hash(j.env), restBefore = hash({ ...j, permissions: undefined }), permBefore = hash({ ...(j.permissions || {}), allow: undefined });
     j.permissions = { ...(j.permissions || {}), allow: next };
@@ -312,7 +385,14 @@ async function main() {
   if (legacy.length) console.log(`\n发现旧版（改名前）的文件，没动它们，确认不用了可以自己删：\n  ${legacy.join('\n  ')}`);
 
   console.log(`\n${DRY ? '试运行结束，没改任何文件。' : '装好了。'}文件 ${manifest.files.length} 个，本次备份 ${manifest.backups.length - oldBackups} 个。`);
-  if (!DRY) console.log(`下一步：重启 Claude Code；按 docs/GUIDE.md 配 modelSettings 等；跑 \`node ${P}/doctor.js\` 体检。卸载：再跑一次安装入口选「卸载」，或 \`node ${P}/uninstall.js\``);
+  if (!DRY) {
+    // 安装入口（setup.js）把「安装 → 配置 → 体检」串着跑时，会在环境变量 MR_SETUP_FLOW 里写后面还要跑哪几步（逗号分隔）：
+    // 后面有配置这一步，这里就不再提示手动配；单独跑 install.js（或配置这一步被跳过）才提示
+    const flowNext = (process.env.MR_SETUP_FLOW || '').split(',').filter(Boolean);
+    const bye = `卸载：再跑一次安装入口选「卸载」，或 \`node ${ref('uninstall.js')}\``;
+    if (flowNext.includes('configure')) console.log(`下一步：接着配模型设置${flowNext.includes('doctor') ? '、体检' : ''}（安装入口自动做）；做完重启 Claude Code。${bye}`);
+    else console.log(`下一步：重启 Claude Code；接着跑 \`node ${ref('configure.js')}\`（或安装入口菜单 5）配模型设置并体检，手动配见 docs/GUIDE.md。${bye}`);
+  }
 }
 
 main();

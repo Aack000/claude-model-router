@@ -23,7 +23,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const CLAUDE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.claude');
+// 配置目录和 Claude Code 一样认 CLAUDE_CONFIG_DIR，没设就是 ~/.claude（各脚本各自内联这一行，单个脚本被拷走也能用）
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(process.env.USERPROFILE || process.env.HOME, '.claude');
 const PROJECTS = path.join(CLAUDE_DIR, 'projects');
 const BASELINE = path.join(__dirname, 'usage-baseline.json');
 

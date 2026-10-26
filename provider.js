@@ -17,6 +17,8 @@
  * 主模型：实际生效的主模型（用户级或当前目录的项目配置、环境变量）是 Claude 完整 ID（claude-opus-5-5 之类）时，
  * 第三方供应商会把它当成最贵的模型计费，所以这个会话里自动改成供应商配置里 OPUS 别名的模型（透传 --model 的话不动）。
  *
+ * 用户级 settings.json 指配置目录下的那份：环境变量 CLAUDE_CONFIG_DIR，没设就是 ~/.claude。
+ *
  * 这个文件也能被 require：导出的几个纯函数（拆参数、参数加引号、拒绝判断、主模型判断）是为了单测。
  */
 
@@ -26,6 +28,8 @@ const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 
 const DIR = path.join(__dirname, 'providers');
+// 配置目录和 Claude Code 一样认 CLAUDE_CONFIG_DIR，没设就是 ~/.claude（各脚本各自内联这一行，单个脚本被拷走也能用）
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(os.homedir(), '.claude');
 const TMP_RE = /^model-router-[\w.-]+-(\d+)\.json$/;
 const list = () => (fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5)) : []);
 
@@ -80,8 +84,8 @@ const samePath = (a, b) => (process.platform === 'win32' ? path.resolve(a).toLow
  * 配置的 env 会盖掉 shell 里的同名变量（10-26 实测：shell 设 haiku、项目配置 env 设 sonnet，跑的是 sonnet）。
  * 只管判断：我们的临时设置文件经 --settings 传入，优先级高于这三层，覆盖本身不受影响
  */
-function resolveMainModel(procEnv, cwd, home) {
-  const user = path.join(home, '.claude', 'settings.json');
+function resolveMainModel(procEnv, cwd, home, claudeDir) {
+  const user = path.join(claudeDir || path.join(home, '.claude'), 'settings.json');   // 用户级配置在配置目录里（CLAUDE_CONFIG_DIR 或 ~/.claude）；不传就按 home 推
   const layers = [
     ['项目本地配置', path.join(cwd, '.claude', 'settings.local.json')],
     ['项目配置', path.join(cwd, '.claude', 'settings.json')],
@@ -166,13 +170,13 @@ function main() {
   const env = { ...cfg.env, ANTHROPIC_AUTH_TOKEN: key };
   // 用户级配置里有 ANTHROPIC_API_KEY 时也要盖掉：不然它会以 x-api-key 发给新供应商，被拒 401。没有就不加（加了交互模式会多问一次要不要用这个 key）
   let userSettings = {};
-  try { userSettings = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8')) || {}; } catch { /* 没有也行 */ }
+  try { userSettings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8')) || {}; } catch { /* 没有也行 */ }
   const userEnv = userSettings.env || {};
   if ('ANTHROPIC_API_KEY' in userEnv || process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = key;
 
   // 主模型若是 Claude 完整 ID（项目 / 用户级配置的 model、env.ANTHROPIC_MODEL、环境变量），临时设置里的别名映射管不到它：
   // DeepSeek 会把 claude-opus* 当成 deepseek-v4-pro 按约 4.4 倍计费
-  const mm = resolveMainModel(process.env, process.cwd(), os.homedir());
+  const mm = resolveMainModel(process.env, process.cwd(), os.homedir(), CLAUDE_DIR);
   const override = mm && pickModelOverride(mm.spec, cfg.env, pass);
   if (override) {
     env.ANTHROPIC_MODEL = override.to;

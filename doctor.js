@@ -22,7 +22,7 @@ const QUICK = process.argv.includes('--quick');
 const QUIET = process.argv.includes('--quiet');
 
 const HOME = os.homedir();
-const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude');
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(HOME, '.claude');
 const SETTINGS = path.join(CLAUDE_DIR, 'settings.json');
 const STATE_FILE = path.join(__dirname, '.last-check.json');
 
