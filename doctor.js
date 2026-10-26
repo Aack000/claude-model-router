@@ -248,11 +248,24 @@ if (!fs.existsSync(path.join(__dirname, 'route-check.js'))) {
       .map(([, v]) => String(v).replace(/\[\d+m\]$/i, '').replace(/^claude-/, ''))
       .filter((key) => !priceKeys.has(key) && !priceKeys.has(key.replace(/-\d{8}$/, '')));
     if (unpriced.length) {
-      warn(`usage-audit 的单价表里没有 ${unpriced.join('、')}，花费会按默认价估`,
+      warn(`usage-audit 的单价表里没有 ${[...new Set(unpriced)].join('、')}，花费会按默认价估`,
            '在 usage-audit.js 的 PRICE 里补一行；拿不到账单就先按同族上一代的价，注释写明是估的');
     } else {
       ok('env 钉的模型在 usage-audit 单价表里都有价');
     }
+  }
+}
+
+// 几个别名钉同一个模型（比如第三方供应商全映射到一个模型省钱）：CLI 分不清子代理是哪个角色，
+// 各角色的 effort 会套成同一档（10-26 DeepSeek 全映射 flash 实测：sonnet 配 high，实际跑 xhigh）。不是错，说一声
+if (settings) {
+  const byId = {};
+  for (const [k, v] of Object.entries(settings.env || {})) {
+    const a = (k.match(/^ANTHROPIC_DEFAULT_([A-Z]+)_MODEL$/) || [])[1];
+    if (a) (byId[String(v).replace(/\[\d+m\]$/i, '')] ||= []).push(a.toLowerCase());
+  }
+  for (const [id, as] of Object.entries(byId)) {
+    if (as.length > 1) ok(`ℹ ${as.join('/')} 都钉到 ${id}：这几个角色的 effort 分不开，会套成同一档（modelSettings 里按别名配的不同档位不起作用）`);
   }
 }
 
@@ -347,6 +360,15 @@ if (QUICK) {
     // CLI 不认识的模型：effort/xhigh 是否支持靠默认推断，可能静默降档
     for (const [k, id] of envModelIds) {
       if (scanned[`id:${k}`]?.size) continue;
+      // 第三方模型（DeepSeek 等）CLI 本来就不认识，能力要靠 <变量>_SUPPORTED_CAPABILITIES 声明：CLI 按模型 ID 识别 effort / thinking，认不出就可能不发
+      if (!/^claude-/i.test(id)) {
+        const caps = (settings?.env || {})[`${k}_SUPPORTED_CAPABILITIES`];
+        if (caps) ok(`${k} = "${id}"：第三方模型，已声明能力 ${caps}`);
+        else warn(`${k} = "${id}"：第三方模型，没声明 ${k}_SUPPORTED_CAPABILITIES`,
+          'CLI 认不出它支持什么，可能不发 effort / thinking 参数，你配的 effort 档位就不生效。供应商支持的话加上，' +
+          '如 effort,xhigh_effort,max_effort,thinking,adaptive_thinking（DeepSeek 10-26 实测这几种写法接口都接受）');
+        continue;
+      }
       warn(`${k} = "${id}"：当前 CLI 里没有这个模型的能力数据`,
            '通常是模型比 CLI 新（靠 env 透传）。effort 档位由默认规则推断，可能被静默降档——' +
            '用 transcript 里每条记录的 "effort" 字段核实实际档位，别只看配置');
@@ -422,7 +444,7 @@ async function checkGatewayModels() {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    ids = ((await res.json()).data || []).map((m) => m.id).filter((id) => /^claude-/.test(id));
+    ids = ((await res.json()).data || []).map((m) => m.id);
   } catch (e) {
     // 只报状态，别把请求头（含 token）带进输出
     warn(`查不到网关的模型列表（${e.name === 'TimeoutError' ? '超时' : e.message}），跳过新版检查`,
@@ -431,6 +453,12 @@ async function checkGatewayModels() {
   }
   const fine = [];
   for (const p of envPins) {
+    // 第三方模型没有「同族新版」可比，只看网关列表里有没有它
+    if (!famOf(p.id)) {
+      if (ids.includes(p.id)) fine.push(p.id);
+      else warn(`${p.key} = "${p.id}" 不在网关的模型列表里`, `网关可用：${ids.slice(0, 20).join(', ')}`);
+      continue;
+    }
     const same = ids.filter((id) => famOf(id) === p.fam);
     if (!same.length) continue;
     const newest = same.sort((a, b) => cmpVer(verOf(b), verOf(a)))[0];

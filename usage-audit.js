@@ -62,8 +62,20 @@ const PRICE = {
   'sonnet-4-6': [3, 15, 0.30, 3.75],
   'sonnet-4-5': [3, 15, 0.30, 3.75],
   'haiku-4-5': [1, 5, 0.10, 1.25],
+  // DeepSeek（Anthropic 兼容接口，10-26 取自 api-docs.deepseek.com 定价页）：高峰价；没有写缓存费，未命中按输入价算，所以第 4 项 = 输入价。
+  // 非高峰减半，见 OFFPEAK_HALF。deepseek-v4-flash 是旧名，现由 flash 接管、按 flash 计价
+  'deepseek-flash': [0.30, 1.20, 0.006, 0.30],
+  'deepseek-v4-flash': [0.30, 1.20, 0.006, 0.30],
+  'deepseek-v4-pro': [1.32, 3.96, 0.044, 1.32],
   _default: [5, 25, 0.50, 6.25],
 };
+
+/**
+ * 分时计价的模型：PRICE 里是高峰价，非高峰减半。DeepSeek 高峰 = 周一到周五 UTC 01–04 点、06–10 点（北京 9–12 点、14–18 点）；
+ * 中国法定节假日全天算非高峰，这里不认节假日，那几天会按高峰多估
+ */
+const OFFPEAK_HALF = new Set(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro']);
+const isDeepSeekPeak = (t) => { const d = new Date(t), h = d.getUTCHours(), w = d.getUTCDay(); return w >= 1 && w <= 5 && ((h >= 1 && h < 4) || (h >= 6 && h < 10)); };
 
 /**
  * 查单价：先原样查，再去掉日期后缀查（haiku-4-5-20251001 → haiku-4-5），都没有才落到 _default。
@@ -76,7 +88,8 @@ const priceOf = (model) => PRICE[priceKey(model)] ?? PRICE._default;
 /** 一次调用的美元：四类 token 各按各的价，1h 写缓存按输入 2 倍 */
 const usdOf = (r) => {
   const [pi, po, pr, pw] = priceOf(r.model);
-  return (r.i * pi + r.o * po + r.cr * pr + (r.cw - r.cw1h) * pw + r.cw1h * pi * 2) / 1e6;
+  const k = OFFPEAK_HALF.has(priceKey(r.model)) && r.t && !isDeepSeekPeak(r.t) ? 0.5 : 1;
+  return k * (r.i * pi + r.o * po + r.cr * pr + (r.cw - r.cw1h) * pw + r.cw1h * pi * 2) / 1e6;
 };
 const priceLabel = (model) => { const [pi, po, pr, pw] = priceOf(model); return `$${pi}/${po}/${pr}/${pw}`; };
 

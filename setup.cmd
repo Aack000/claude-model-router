@@ -7,4 +7,7 @@ set "MR_P="
 if "%~1"=="" set "MR_P=--pause"
 rem Uninstall may delete this file and its folder while it runs; plain "exit /b" would re-open it and print "path not found".
 rem "(goto) 2>nul" leaves the batch without re-reading it, MR_RC carries node's exit code past it. No setlocal: it would drop MR_RC.
-node "%~dp0setup.js" %MR_P% %* & call set "MR_RC=%%errorlevel%%" & (goto) 2>nul & call cmd /c exit %%MR_RC%%
+rem Double-click from the plugin folder makes it the current directory; Windows cannot delete a directory that is in use, so uninstall would fail at the last step.
+rem pushd to the home folder while node runs, popd after leaving the batch, so a cmd prompt that ran this keeps its own directory. %~dp0 is not affected.
+pushd "%USERPROFILE%"
+node "%~dp0setup.js" %MR_P% %* & call set "MR_RC=%%errorlevel%%" & (goto) 2>nul & popd 2>nul & call cmd /c exit %%MR_RC%%

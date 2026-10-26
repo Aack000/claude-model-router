@@ -10,9 +10,10 @@
  *
  * 做三件事，都能用 uninstall.js 撤回：
  *   1. 插件文件 → ~/.claude/plugins/model-router/（脚本、文档、commands / agents 原件、安装入口）。
- *      仓库本身就克隆在这个目录时跳过这一步
+ *      仓库本身就克隆在这个目录时跳过这一步；从上次装好的副本重跑（目录里没有 .git）也不复制，命令和子代理按清单里的记录部署
  *   2. commands/*.md → ~/.claude/commands/，agents/*.md → ~/.claude/agents/。
- *      目标已存在且内容不同的，先备份成 <原名>.bak-<时间>；上次安装放进去、之后没被改过的直接覆盖（升级）
+ *      目标已存在且内容不同的，先备份成 <原名>.bak-<时间>；上次安装放进去、之后没被改过的直接覆盖（升级）。
+ *      上一版装过、这一版没有的文件：没被改过的删掉，被改过的留着只提示（都不再进清单）
  *   3. 用户级 ~/.claude/settings.json 的 permissions.allow 按选择加放行规则（清单见 RULES）。
  *      为什么：auto 模式的分类器会误拦这几个脚本，/route 就卡住等人；命中放行规则的命令不送分类器。
  *      每条规则只放一个插件自带脚本，脚本自己守边界（只删过程文件 / 只读），规则才敢放宽到任意参数。
@@ -116,13 +117,18 @@ async function main() {
   const base = Array.isArray(prev?.rules) ? new Set(prev.rules) : new Set(RULES.filter((r) => r.def).map((r) => r.id));
   const ids = (s) => (s.size ? RULES.filter((r) => s.has(r.id)).map((r) => r.script).join('、') : '一条都不要');
 
-  // 读 settings.json 只为显示哪些规则已经有了；env 不打印
-  const exists = fs.existsSync(SETTINGS);
-  const raw = exists ? fs.readFileSync(SETTINGS, 'utf8') : '{}\n';
-  let j;
-  try { j = JSON.parse(raw); } catch { console.error(`✗ ${SETTINGS} 不是合法 JSON，什么都没改。修好后重跑。`); process.exit(1); }
-  const allow = j.permissions?.allow ?? [];
-  if (!Array.isArray(allow)) { console.error(`✗ ${SETTINGS} 里 permissions.allow 不是数组，什么都没改。修好后重跑。`); process.exit(1); }
+  /** 读 settings.json；不合法就退出（此时还什么都没改）。env 不打印 */
+  const readSettings = () => {
+    const exists = fs.existsSync(SETTINGS);
+    const raw = exists ? fs.readFileSync(SETTINGS, 'utf8') : '{}\n';
+    let j;
+    try { j = JSON.parse(raw); } catch { console.error(`✗ ${SETTINGS} 不是合法 JSON，什么都没改。修好后重跑。`); process.exit(1); }
+    const allow = j.permissions?.allow ?? [];
+    if (!Array.isArray(allow)) { console.error(`✗ ${SETTINGS} 里 permissions.allow 不是数组，什么都没改。修好后重跑。`); process.exit(1); }
+    return { exists, raw, j, allow };
+  };
+  // 这一次读取只为提前挡掉坏文件、显示哪些规则已经有了；后面写回用的是等输入结束后重新读的那份
+  let { exists, raw, j, allow } = readSettings();
 
   // ---------- 0. 先定放行规则，再动文件：中途取消什么都不改 ----------
   let sel;
@@ -146,6 +152,9 @@ async function main() {
   }
   if (rl) rl.close();
   say(`放行规则：${ids(sel)}`);
+  // 等输入可能等了很久（CC Switch 切卡、用户自己改配置都会写 settings.json）：写回之前重新读，别拿开头那份旧内容把别人的改动冲掉。
+  // 紧跟在选择之后、动任何文件之前读：万一这时文件坏了，「什么都没改」仍然成立
+  ({ exists, raw, j, allow } = readSettings());
 
   const TS = stamp();
   const manifest = { installedAt: new Date().toISOString(), version: null, files: [], backups: [], rules: [...sel], rulesAdded: [] };
@@ -177,23 +186,48 @@ async function main() {
     manifest.files.push({ target, sha: h, kind });
   }
 
-  const listMd = (dir) => (fs.existsSync(path.join(SRC, dir)) ? fs.readdirSync(path.join(SRC, dir)).filter((n) => n.endsWith('.md')).map((n) => `${dir}/${n}`) : []);
+  const listMd = (dir, ext = '.md') => (fs.existsSync(path.join(SRC, dir)) ? fs.readdirSync(path.join(SRC, dir)).filter((n) => n.endsWith(ext)).map((n) => `${dir}/${n}`) : []);
 
   // ---------- 1. 插件文件 ----------
   const norm = (p) => { const r = fs.existsSync(p) ? fs.realpathSync(p) : path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
-  if (norm(SRC) === norm(PLUGIN)) {
+  const inPlace = norm(SRC) === norm(PLUGIN);
+  // 「就在插件目录」有两种：git 克隆就放在那儿，或上次安装复制过去的副本（没有 .git、有清单）。
+  // 副本里会躺着旧版残留（比如已改名的 commands/dev.md），不能 readdir 当源文件部署，只信清单；插件文件的记录原样带进新清单
+  const copyMode = inPlace && !!prev && !fs.existsSync(path.join(SRC, '.git'));
+  const prevPlugin = (prev?.files || []).filter((f) => f.kind === 'plugin');
+  /** 副本模式：dir（commands / agents）下的源文件取自清单里的插件文件记录，文件还在才算 */
+  const listFromManifest = (dir) => prevPlugin.map((f) => path.relative(PLUGIN, f.target))
+    .filter((r) => path.dirname(r) === dir && r.endsWith('.md') && fs.existsSync(path.join(SRC, r))).map((r) => `${dir}/${path.basename(r)}`);
+  const listSrc = (dir) => (copyMode ? listFromManifest(dir) : listMd(dir));
+  if (copyMode) {
+    say('从已安装的副本重跑：插件文件不动，只按记录重新部署命令和子代理');
+    manifest.files.push(...prevPlugin);   // sha 用记录里的、不重算：装完后被改过的，卸载时仍然不删
+  } else if (inPlace) {
     say(`仓库就在 ${PLUGIN}，跳过复制插件文件`);
   } else {
     const pluginFiles = ['.claude-plugin/plugin.json', 'README.md', 'LICENSE', 'install.js', 'uninstall.js',
       'setup.js', 'setup.cmd', 'setup.ps1', 'setup.sh', 'setup.command',
-      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', ...listMd('commands'), ...listMd('agents'), ...listMd('docs')]
+      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'provider.js',
+      ...listMd('commands'), ...listMd('agents'), ...listMd('docs'), ...listMd('providers', '.json')]
       .filter((f) => fs.existsSync(path.join(SRC, f)));
     for (const f of pluginFiles) place(f, path.join(PLUGIN, f), 'plugin');
   }
 
   // ---------- 2. 命令与子代理 ----------
-  for (const f of listMd('commands')) place(f, path.join(CLAUDE, 'commands', path.basename(f)), 'command');
-  for (const f of listMd('agents')) place(f, path.join(CLAUDE, 'agents', path.basename(f)), 'agent');
+  for (const f of listSrc('commands')) place(f, path.join(CLAUDE, 'commands', path.basename(f)), 'command');
+  for (const f of listSrc('agents')) place(f, path.join(CLAUDE, 'agents', path.basename(f)), 'agent');
+
+  // ---------- 2b. 上一版装过、这一版没有的文件 ----------
+  // 不处理的话它们既不在新清单里、卸载也删不掉，永远残留。没被改过的删掉；被改过的留着，但也不再记进清单
+  const pk = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };   // 大小写不敏感的盘上，别把刚放好的文件当成「没有的」
+  const nowTargets = new Set(manifest.files.map((f) => pk(f.target)));
+  for (const f of prev?.files || []) {
+    if (nowTargets.has(pk(f.target))) continue;
+    if (inPlace && f.kind === 'plugin') continue;   // 仓库自己的文件，绝不删（副本模式的已经带进新清单了）
+    if (!fs.existsSync(f.target)) continue;
+    if (sha(f.target) === f.sha) { say(`删 上一版装过、这一版没有的：${f.target}`); if (!DRY) fs.unlinkSync(f.target); }
+    else say(`上一版装过、这一版没有，但被改过，没删：${f.target}`);
+  }
 
   // ---------- 3. 放行规则 ----------
   const next = [...allow], added = [], removed = [], userOwn = [];

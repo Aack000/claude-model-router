@@ -54,7 +54,10 @@ let settings = {};
 try { settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8')); } catch { /* 没有也能跑，只是少了版本比对 */ }
 const bareId = (s) => String(s || '').replace(/\[\d+m\]$/i, '');
 const famOf = (id) => (String(id).match(/^claude-([a-z]+)-/) || [])[1] || null;
-const pinOf = (fam) => bareId((settings.env || {})[`ANTHROPIC_DEFAULT_${String(fam).toUpperCase()}_MODEL`]) || null;
+// 别名 → 当前钉的模型。优先读进程环境：route-check 在会话里经 Bash 调用时，继承的就是这个会话实际生效的映射
+// （CC Switch 切卡写进 settings.json 的，或启动脚本 provider.js 用 --settings 只套给这一个会话的）；在会话外跑才退回读 settings.json
+const pinOf = (fam) => { const k = `ANTHROPIC_DEFAULT_${String(fam).toUpperCase()}_MODEL`; return bareId(process.env[k] || (settings.env || {})[k]) || null; };
+const ALIASES = ['fable', 'opus', 'sonnet', 'haiku'];
 
 /** 读 agent 文件 frontmatter 里的 effort */
 function agentEffort(type) {
@@ -143,8 +146,10 @@ const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 5) : '--:--';
 {
   const s = scan(main);
   mainCtx = s.lastCtx;
-  const alias = settings.model || 'opus';
-  const pin = pinOf(alias);
+  // 主模型的优先级同 CLI：ANTHROPIC_MODEL 环境变量 > settings.model；值可以是别名，也可以是完整模型 ID（第三方供应商常这么写）
+  const spec = String(process.env.ANTHROPIC_MODEL || (settings.env || {}).ANTHROPIC_MODEL || settings.model || 'opus');
+  const alias = bareId(spec);
+  const pin = ALIASES.includes(alias) ? pinOf(alias) : alias;
   const notes = [];
   const off = pin ? s.models.filter((m) => bareId(m) !== pin) : [];
   if (off.length) {
@@ -174,19 +179,23 @@ for (const f of subs) {
   const rule = EXPECT[type];
   const fam = rule ? rule.fam : 'sonnet';
   const pin = pinOf(fam);
-  const actualFams = [...new Set(s.models.map(famOf))];
   const notes = [];
 
+  // 判定：实际模型 = 这个别名当前钉的模型就对，不管是不是 Claude（第三方供应商把别名映射到 deepseek-flash 之类也成立）。
+  // 不等时：Claude 家族对、只是版本不同 → ⚠（中途改过 env）；家族都不对、或第三方模型对不上 → ❌。
+  // 几个别名钉同一个模型时（比如全映射到 deepseek-flash），「忘了传 sonnet、继承了主会话」查不出来，但跑的本来就是同一个模型，不算错
   if (!s.models.length) {
     notes.push('（还没有模型调用记录）');
-  } else if (actualFams.some((x) => x !== fam)) {
-    notes.push(`❌ 应跑 ${fam}，实际 ${fmtModels(s)}` +
+  } else if (pin ? s.models.every((m) => bareId(m) === pin) : s.models.every((m) => famOf(m) === fam)) {
+    /* 按设计跑 */
+  } else if (pin && s.models.every((m) => famOf(m) === fam)) {
+    notes.push(`⚠ 版本 ${fmtModels(s)} ≠ env 当前的 ${pin}（会话中途改过 env 就正常；否则查哪里写死了版本号）`);
+    warnN++;
+  } else {
+    notes.push(`❌ 应跑 ${fam}${pin ? `（${pin}）` : ''}，实际 ${fmtModels(s)}` +
       (!rule && !meta.model ? '——没传 model 参数，继承了主会话' : '') +
       (rule && meta.model ? `——被传了 model: "${meta.model}"，覆盖了 frontmatter` : ''));
     bad++;
-  } else if (pin && s.models.some((m) => bareId(m) !== pin)) {
-    notes.push(`⚠ 版本 ${fmtModels(s)} ≠ env 当前的 ${pin}（会话中途改过 env 就正常；否则查哪里写死了版本号）`);
-    warnN++;
   }
   // 家族对了但传了参数：违反规矩、结果没错，提醒即可，不要因此去重跑
   if (rule && meta.model && !notes.some((n) => n.startsWith('❌'))) {
@@ -195,8 +204,17 @@ for (const f of subs) {
   }
   const wantEffort = rule ? agentEffort(type) : configuredEffort(fam);
   if (wantEffort && s.efforts.length && s.efforts.some((e) => e !== wantEffort)) {
-    notes.push(`⚠ effort 实际 ${s.efforts.join('/')}，配置是 ${wantEffort}`);
-    warnN++;
+    // 几个别名钉同一个模型时，CLI 分不清这个子代理是哪个角色，effort 会套成同模型别的别名的档位（10-26 DeepSeek 全映射 flash 实测：
+    // sonnet 配 high，实际 xhigh）。实际档位落在同模型别名的配置里 → 只说明、不算提醒，免得每次都打整张表
+    const shared = ALIASES.filter((a) => a !== fam && pin && pinOf(a) === pin);
+    const sharedEfforts = new Set([...shared.map(configuredEffort), ...(shared.includes('fable') ? [agentEffort('planner-fable')] : []),
+      ...(shared.includes('opus') ? [agentEffort('code-reviewer')] : [])].filter(Boolean));
+    if (shared.length && s.efforts.every((e) => e === wantEffort || sharedEfforts.has(e))) {
+      notes.push(`ℹ effort 实际 ${s.efforts.join('/')}、配置是 ${wantEffort}：${[fam, ...shared].join('/')} 钉的是同一个模型 ${pin}，CLI 分不开角色，不算跑错`);
+    } else {
+      notes.push(`⚠ effort 实际 ${s.efforts.join('/')}，配置是 ${wantEffort}`);
+      warnN++;
+    }
   }
   if (!CALL_LIMIT_EXEMPT.has(type) && s.calls > CALL_LIMIT) {
     notes.push(`⚠ ${s.calls} 次调用，超过收工条款的上百次`);

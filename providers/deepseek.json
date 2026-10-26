@@ -1,0 +1,22 @@
+{
+  "name": "DeepSeek",
+  "docs": "https://api-docs.deepseek.com/guides/anthropic_api",
+  "note": "四个别名全映射到 deepseek-flash（最省）。想让规划和审查更强，把 FABLE、OPUS 两行换成 deepseek-v4-pro[1M]（单价约 4.4 倍）。能力声明 10-26 实测接口都接受；删掉这几行 CLI 就不发 effort / thinking，交给 DeepSeek 默认",
+  "keyEnv": ["DEEPSEEK_API_KEY"],
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-flash[1M]",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "deepseek-flash",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-flash[1M]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "deepseek-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-flash[1M]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "deepseek-flash",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-flash[1M]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "deepseek-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking",
+    "CLAUDE_CODE_AUTO_MODE_SERVER": "0"
+  }
+}

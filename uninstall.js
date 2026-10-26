@@ -47,7 +47,7 @@ for (const f of m.files) {
 }
 
 // 插件目录里因此空掉的子目录顺手收掉（只收空的）
-for (const d of ['commands', 'agents', 'docs', '.claude-plugin']) {
+for (const d of ['commands', 'agents', 'docs', 'providers', '.claude-plugin']) {
   const p = path.join(PLUGIN, d);
   if (fs.existsSync(p) && fs.readdirSync(p).length === 0) { say(`删空目录 ${p}`); if (!DRY) fs.rmdirSync(p); }
 }
@@ -88,7 +88,12 @@ if (m.backups.length) console.log(`\n安装时做的备份（没动，要恢复�
 if (fs.existsSync(path.join(PLUGIN, '.git'))) console.log(`\n${PLUGIN} 是 git 仓库，没删；不要了就自己删整个目录。`);
 else if (!DRY && fs.existsSync(PLUGIN)) {
   const left = fs.readdirSync(PLUGIN);
-  if (!left.length) fs.rmdirSync(PLUGIN);
-  else console.log(`\n插件目录里还剩这些（运行时生成的或你放的），没删：\n  ${left.map((n) => path.join(PLUGIN, n)).join('\n  ')}`);
+  if (!left.length) {
+    // Windows 上有窗口 / 进程把当前目录放在里面时删不掉（EBUSY / EPERM）：其余都已卸载，这只是个空目录，提示一句就行，别抛堆栈
+    try { fs.rmdirSync(PLUGIN); } catch (e) {
+      if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;
+      console.log(`\n插件目录 ${PLUGIN} 正被占用（可能有窗口开在里面），其余都已卸载；关掉窗口后手动删这个空目录。`);
+    }
+  } else console.log(`\n插件目录里还剩这些（运行时生成的或你放的），没删：\n  ${left.map((n) => path.join(PLUGIN, n)).join('\n  ')}`);
 }
 console.log(`\n${DRY ? '试运行结束，没改任何文件。' : '卸载完成，重启 Claude Code 生效。'}`);

@@ -4,7 +4,7 @@ usage-baseline.json
 
 # /route 流程在项目里生成的工作文件
 .route-*
-PLAN-*.md
+/PLAN-*.md
 
 # 备份
 *.bak-*

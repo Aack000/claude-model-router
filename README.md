@@ -31,7 +31,8 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 - **防静默跑错**：每个子代理返回后核实它实际跑的模型（不是看配置推断），跑错当场报，不用等账单
 - **用量可度量**：`usage-audit.js` 提供统一口径的成本统计（EIU、缓存命中率、子代理规模分档、缓存 TTL 模拟），所有结论可复现
 - **配置可体检**：`doctor.js` 一条命令核查网关连通、别名钉版、孤儿键，可挂 SessionStart 钩子静默自检
-- **不碰任何 key**：供应商与凭据全由 Claude Code / CC Switch 管理，插件零凭据
+- **不存任何 key**：供应商与凭据由 Claude Code / CC Switch 管理；只有 `provider.js` 在启动时从环境变量读 key、交给那一个会话，会话结束就删临时文件
+- **能换供应商**：别名映射到 DeepSeek 等第三方模型时，流程照样按阶段派活，`route-check` / `doctor` / `usage-audit` 都认第三方模型（DeepSeek 10-26 实测）
 
 ## 实测数据
 
@@ -63,6 +64,8 @@ route-check.js              每轮结束后核实子代理实际跑的模型
 doctor.js                      配置体检（网关、别名、孤儿键等）
 usage-audit.js                 用量统计（价格口径内置；基线用 --baseline 自行生成，不入库）
 route-clean.js              清理 /route 过程文件
+provider.js                    只给一个会话换供应商（不动 CC Switch、不改 settings.json）
+providers/*.json               供应商配置（别名映射、能力声明、key 从哪个环境变量读）
 setup.cmd / .ps1 / .sh / .command   安装入口：双击或命令行，出菜单（Windows / PowerShell / Linux·macOS / macOS 访达）
 setup.js                       菜单本体（上面四个都调它）
 install.js / uninstall.js      安装 / 卸载（入口最终跑这两个，也能直接调）
@@ -122,7 +125,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 平台注意：
 
 - Windows 双击 `.ps1` 默认是用记事本打开，所以双击用 `setup.cmd`；`setup.ps1` 可以右键「使用 PowerShell 运行」。PowerShell 提示禁止运行脚本时：`powershell -ExecutionPolicy Bypass -File .\setup.ps1`
-- macOS 双击 `setup.command` 提示「无法打开」：右键 → 打开；提示没有权限：终端里 `chmod +x setup.command setup.sh`（下载 zip 可能丢执行权限）
+- macOS 双击 `setup.command` 提示「无法打开」：右键 → 打开；仓库里已带执行权限，提示没有权限时（比如解压工具丢了权限）再在终端里 `chmod +x setup.command setup.sh`
 - 设置了 `CLAUDE_CONFIG_DIR` 的暂不支持（命令和规则写死了 `~/.claude`），安装器会直接拒绝
 
 ### 手动安装
@@ -170,6 +173,31 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 审查单独触发：说「用 code-reviewer 审一下 xxx」。
 
+## 换供应商（以 DeepSeek 为例）
+
+`/route` 按别名派活（规划 fable、审查 opus、实现 sonnet），别名映射到哪个模型由 `ANTHROPIC_DEFAULT_*_MODEL` 决定。所以换供应商只是换一套映射，流程不用改。两种用法：
+
+**① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`providers/deepseek.json`](providers/deepseek.json) 的 `env`（再加上 key）。
+
+**② `provider.js`（只换这一个会话）**：CC Switch 当前卡片不动，可以一边开 Claude 会话、一边开 DeepSeek 会话。在项目目录里：
+
+```bash
+node ~/.claude/plugins/model-router/provider.js deepseek                         # key 从环境变量 DEEPSEEK_API_KEY 读
+node ~/.claude/plugins/model-router/provider.js deepseek --key-env MY_KEY_VAR   # key 存在别的变量名里
+node ~/.claude/plugins/model-router/provider.js deepseek --dry-run              # 只看会怎么启动（key 打码）
+node ~/.claude/plugins/model-router/provider.js --list                          # 有哪些供应商配置
+```
+
+其余参数原样交给 `claude`（如 `--resume`）。它把 `providers/<名字>.json` 的 env 加上 key 写进临时文件，用 `claude --settings` 启动；这个文件的优先级高于用户级 settings.json，只对这个进程生效，会话结束就删。Windows 上刚设的环境变量要新开窗口才进进程，所以它还会去注册表读。加别的供应商就照 `deepseek.json` 再写一份。
+
+DeepSeek 10-26 实测：
+
+- 两个模型 `deepseek-flash`、`deepseek-v4-pro`，都是 1M 上下文。`providers/deepseek.json` 按最省钱的方式把四个别名全映射到 flash；想让规划和审查更强，把 FABLE、OPUS 两行换成 `deepseek-v4-pro[1M]`
+- 规划、审查、实现三个子代理和主会话都按映射跑在 flash 上；auto 模式的权限分类器跑在 sonnet 别名映射的模型上，在 DeepSeek 上能正常工作
+- CLI 认不出第三方模型的能力，要用 `ANTHROPIC_DEFAULT_*_MODEL_SUPPORTED_CAPABILITIES` 声明，否则可能不发 effort / thinking。DeepSeek 接口接受 `effort,xhigh_effort,max_effort,thinking,adaptive_thinking` 这几种写法
+- 几个别名映射到同一个模型时，CLI 分不清子代理是哪个角色，各角色的 effort 会套成同一档（sonnet 配 high，实际跑 xhigh）。`route-check` 遇到这种情况只给说明、不报错，`doctor` 会提示
+- `route-check` 优先读会话的环境变量，所以两种用法下都按当前会话实际生效的映射核对；`usage-audit` 按 DeepSeek 公开价计费，区分高峰和非高峰（非高峰半价）
+
 ## 依赖要求
 
 - Claude Code CLI（本方案在 2.1.276 实测）
@@ -183,7 +211,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 迭代方向按可行性排序：
 
-1. **同供应商多模型分工（已可用，零代码）**：四个模型别名经 `ANTHROPIC_DEFAULT_*_MODEL` / CC Switch 快照映射，换成哪家供应商、映射到哪几个模型，插件一行不改
+1. **同供应商多模型分工（已可用）**：四个模型别名经 `ANTHROPIC_DEFAULT_*_MODEL` / CC Switch 卡片 / `provider.js` 映射，换成哪家供应商、映射到哪几个模型，流程不用改；核对、体检、计费工具已能认第三方模型（DeepSeek 10-26 实测，见上面「换供应商」）
 2. **跨供应商分流（可行度：中，待实测）**：机制上有两条路——网关按模型名分流，或经 ACP（acpx）做进程级编排。已知各家兼容端点的坑（拒收中间 `role:system`、`tool_choice`、WebSearch 仅官方等）已调研归档在 [TECH-LIBRARY](docs/TECH-LIBRARY.md)。第一步是加一个**异家族审查员**并行试点（只读代码只写报告，模型不行最坏是报告没用），验证非 Claude 模型能否守住收工条款和报告格式
 3. **多 CLI 版本（可行度：低，观望）**：被上游硬阻塞——Codex 子代理只能沿用主会话同一供应商（openai/codex#47752）、Windows 上子代理配置不生效（openai/codex#19399）；dsh 处于开发者预览、声明有破坏性变更。这些修复前不投入；届时也在本仓库内演进，不拆多仓库
 

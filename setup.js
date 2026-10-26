@@ -39,7 +39,8 @@ function readLineSync(q) {
 }
 
 function run(script, pass) {
-  const r = spawnSync(process.execPath, [path.join(__dirname, script), ...pass], { stdio: 'inherit' });
+  // cwd 换到家目录：从插件目录双击 / 右键运行时，当前目录就是插件目录，Windows 上占着的目录删不掉，卸载最后删插件目录会 EBUSY
+  const r = spawnSync(process.execPath, [path.join(__dirname, script), ...pass], { stdio: 'inherit', cwd: os.homedir() });
   return r.status ?? 1;
 }
 

@@ -7,5 +7,17 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($args.Count -eq 0) { cmd /c pause }
   exit 1
 }
-if ($args.Count -eq 0) { node "$PSScriptRoot/setup.js" --pause } else { node "$PSScriptRoot/setup.js" @args }
-exit $LASTEXITCODE
+# Run node from the home folder: when launched from the plugin folder it is the current directory, and Windows cannot delete a directory that is in use (uninstall's last step).
+# Push-Location, not Set-Location: the caller's own current directory must come back. Pop-Location fails quietly if that folder was just deleted.
+# The PowerShell process itself also holds its start directory (Push-Location only moves the PowerShell location), so move and restore that too.
+$oldCwd = [Environment]::CurrentDirectory
+Push-Location -LiteralPath $HOME
+try {
+  [Environment]::CurrentDirectory = $HOME
+  if ($args.Count -eq 0) { node "$PSScriptRoot/setup.js" --pause } else { node "$PSScriptRoot/setup.js" @args }
+  $rc = $LASTEXITCODE
+} finally {
+  try { [Environment]::CurrentDirectory = $oldCwd } catch { }
+  Pop-Location -ErrorAction SilentlyContinue
+}
+exit $rc
