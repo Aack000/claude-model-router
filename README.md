@@ -63,13 +63,69 @@ route-check.js              每轮结束后核实子代理实际跑的模型
 doctor.js                      配置体检（网关、别名、孤儿键等）
 usage-audit.js                 用量统计（价格口径内置；基线用 --baseline 自行生成，不入库）
 route-clean.js              清理 /route 过程文件
+setup.cmd / .ps1 / .sh / .command   安装入口：双击或命令行，出菜单（Windows / PowerShell / Linux·macOS / macOS 访达）
+setup.js                       菜单本体（上面四个都调它）
+install.js / uninstall.js      安装 / 卸载（入口最终跑这两个，也能直接调）
 docs/GUIDE.md                  详细文档（安装、实测结论、成本分析、验证、升级）
 docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等暂缓方向）
 ```
 
 ## 安装
 
-完整说明见 [docs/GUIDE.md](docs/GUIDE.md)。三步：
+完整说明见 [docs/GUIDE.md](docs/GUIDE.md)。
+
+### 一键安装（推荐）
+
+先装 [Node.js](https://nodejs.org) 18+，再把仓库克隆或下载解压到任意位置：
+
+```bash
+git clone https://github.com/Aack000/claude-model-router.git
+```
+
+| 系统 | 双击 | 命令行 |
+|---|---|---|
+| Windows | `setup.cmd` | `setup.cmd`（cmd）、`.\setup.ps1`（PowerShell） |
+| macOS | `setup.command`（访达里双击） | `./setup.sh` |
+| Linux | — | `./setup.sh` |
+
+不带参数出菜单：1 安装 / 升级、2 卸载、3 试运行（只列会改什么，不动文件）。选了安装会逐条列出放行规则让你勾，直接回车按默认。
+
+带参数就直接执行、不出菜单：
+
+```bash
+./setup.sh install --rules=clean,check   # 指定放行规则：名字或编号，逗号分隔；all = 全要，none = 都不要
+./setup.sh install --dry-run             # 只看会改什么
+./setup.sh uninstall                     # 卸载，同样支持 --dry-run
+```
+
+Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接跑 `node install.js …`、`node uninstall.js …`，参数一样。
+
+安装做三件事，可以重复跑（重复跑就是升级，想改放行规则的选择也是再跑一次）：
+
+1. 插件文件放到 `~/.claude/plugins/model-router/`（`route.md` 按这个路径调用脚本）
+2. `commands/*.md` → `~/.claude/commands/`，`agents/*.md` → `~/.claude/agents/`；会覆盖的旧文件先备份成 `*.bak-<时间>`
+3. 用户级 `~/.claude/settings.json` 的 `permissions.allow` 按你的选择加放行规则：
+
+| 名字 | 默认 | 放行的命令 | 不放行会怎样 |
+|---|---|---|---|
+| `clean` | ✓ | `node ~/.claude/plugins/model-router/route-clean.js …` | `/route` 收尾删过程文件被拦，流程卡住等人 |
+| `check` | ✓ | `node ~/.claude/plugins/model-router/route-check.js …` | `/route` 每个子代理返回后都要核模型，被拦就停 |
+| `audit` |  | `node ~/.claude/plugins/model-router/usage-audit.js …` | 让 Claude 查用量时偶尔要你手动批 |
+| `doctor` |  | `node ~/.claude/plugins/model-router/doctor.js`（只放不带参数的） | 同上；`--gateway` 要读凭据，始终不放行 |
+
+为什么要放行规则：auto 模式的权限分类器会误拦这几个脚本（作者实测 route-check 300 多次里被拦 5 次），命中放行规则的命令不送分类器。每条规则只放插件自带的一个脚本，边界由脚本自己守：`route-clean.js` 只删 `.route-plan.md`、`.route-plan-*.md`、`.route-handoff-*.md` 三种文件名，并跳过被 git 跟踪的文件；其余三个只读。改 `settings.json` 前先备份（同一秒连跑也不会互相覆盖），只动 `permissions.allow`，写完核对 env 和其余配置一字不差。再跑一次少选几条，上次安装加的会被去掉；你自己原先加过的同名规则不动。这些规则 Claude 自己加不了（auto 模式下给自己放权会被拦），所以要你亲手跑。
+
+装完**重启 Claude Code**，再按下面「手动安装」第 3 步配 `settings.json`（模型别名和 effort 因人而异，脚本不替你改）。
+
+卸载：再跑一次入口选「卸载」，或 `node ~/.claude/plugins/model-router/uninstall.js`（同样支持 `--dry-run`）。它只撤回安装时放进去、之后没改过的文件，以及安装器加的规则；备份不动，列出路径。
+
+平台注意：
+
+- Windows 双击 `.ps1` 默认是用记事本打开，所以双击用 `setup.cmd`；`setup.ps1` 可以右键「使用 PowerShell 运行」。PowerShell 提示禁止运行脚本时：`powershell -ExecutionPolicy Bypass -File .\setup.ps1`
+- macOS 双击 `setup.command` 提示「无法打开」：右键 → 打开；提示没有权限：终端里 `chmod +x setup.command setup.sh`（下载 zip 可能丢执行权限）
+- 设置了 `CLAUDE_CONFIG_DIR` 的暂不支持（命令和规则写死了 `~/.claude`），安装器会直接拒绝
+
+### 手动安装
 
 1. **取文件**：把本仓库克隆（或下载解压）到 `~/.claude/plugins/model-router/`：
 
@@ -93,7 +149,11 @@ docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等�
      }
      ```
 
+     macOS / Linux 的 `path` 写 `/Users/<你的用户名>/.claude/plugins/model-router` 或 `/home/<你的用户名>/.claude/plugins/model-router`。
+
    两种方式都要**重启 Claude Code** 才会加载新的 agent。
+
+   手动安装时，放行规则也要自己加：`/permissions` 里至少加 `Bash(node ~/.claude/plugins/model-router/route-clean.js *)`，否则 auto 模式下收尾删文件会被拦；其余几条见上面「一键安装」的表，`route-check`、`usage-audit` 要同时加不带参数和带 ` *` 的两种写法。
 
 3. **settings.json**：按 [GUIDE #安装](docs/GUIDE.md) 配置模型别名与 effort（`modelSettings`、`autoCompactWindow`、删掉 `CLAUDE_CODE_SUBAGENT_MODEL` 等）。这一步插件管不了，必须手动改。
 
@@ -113,7 +173,8 @@ docs/TECH-LIBRARY.md           技术调研库（跨供应商 / Codex 迁移等�
 ## 依赖要求
 
 - Claude Code CLI（本方案在 2.1.276 实测）
-- Node.js（跑 `doctor.js` / `route-check.js` / `usage-audit.js`）
+- Node.js 18+（安装入口和 `doctor.js` / `route-check.js` / `usage-audit.js` 都要）
+- Windows / macOS / Linux 都能装（只在 Windows 上实测过整套流程）
 - 模型别名 `fable` / `sonnet` / `opus` 可用（由 `settings.json` 的 `ANTHROPIC_DEFAULT_*_MODEL` 决定，具体见 GUIDE）
 
 ## Roadmap

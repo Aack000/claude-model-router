@@ -1,0 +1,5 @@
+# 安装入口的换行符写死：cmd 读 LF 的 .cmd 偶尔会错位，bash 读 CRLF 的 .sh 直接报 $'\r'
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+*.sh      text eol=lf
+*.command text eol=lf

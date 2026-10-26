@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * route-clean —— 删 /route 的过程文件，不经 auto 模式分类器（使用方 10-22 授权设置）
+ * route-clean —— 删 /route 的过程文件
  *
  * 用法（单独一次调用，前面别拼 `cd …&&`、后面别接管道，否则不命中放行规则）：
  *   node ~/.claude/plugins/model-router/route-clean.js <目录>             删该目录下全部过程文件
  *   node ~/.claude/plugins/model-router/route-clean.js <目录> <文件名…>    只删这几个（阶段 5「已完成包的 handoff」）
  *
- * 为什么要它：auto 模式分类器的快速判定那一档会直接拦 `rm`。10-22 删 `_patch_tmp/dev-1022/` 下的
- * `.route-plan.md`、`.route-handoff-*.md` 被拦，用户级 `autoMode.allow` 写明了放行这类文件也没用。
- * 放行规则命中就不走分类器，所以给它配一条（用户级 settings.json）：
+ * 为什么要它：auto 模式的权限分类器常把 `rm` 判成危险操作拦下，/route 收尾就卡在删文件上等人。
+ * 在 `autoMode.allow` 里写文字说明也没用：实测快速判定那一档照拦。
+ * 放行规则命中的命令根本不送分类器，所以 `install.js` 会在用户级 settings.json 里加这一条：
  *   Bash(node ~/.claude/plugins/model-router/route-clean.js *)
  * 这条不会被 auto 模式当成「危险规则」摘掉：CLI 只摘 `node -e …` 这种解释器加横杠参数的写法。
- * 这套设置分类器不让 Claude 自己做（写工具、改 route.md 都被拦），是使用方临时切出 auto 后批准完成的。
+ * 规则只能由用户自己加（跑 install.js 或 /permissions）：Claude 不能给自己放权。
  *
  * 安全边界全在这里，规则才敢放宽到任意参数：
  *   - 只认三种文件名：.route-plan.md、.route-plan-<名>.md、.route-handoff-<名>.md；规划备份 *.bak-* 匹配不上

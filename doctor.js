@@ -71,6 +71,9 @@ function findClaudeBinary() {
       const guess = path.join(path.dirname(line.trim()),
         'node_modules/@anthropic-ai/claude-code/bin', exe);
       try { if (fs.statSync(guess).isFile()) return guess; } catch { /* 下一个 */ }
+      // macOS / Linux：PATH 里的 claude 是符号链接，顺着找到本体（原生安装在 ~/.local/share/claude/versions/<版本>，
+      // npm 安装在 <前缀>/lib/node_modules/…）。启动脚本只有几 KB，按体积排除，免得把脚本当二进制扫
+      try { const real = fs.realpathSync(line.trim()); if (fs.statSync(real).size > 1e6) return real; } catch { /* 下一个 */ }
     }
   } catch { /* 没有 claude 也不致命 */ }
   return null;
@@ -259,6 +262,7 @@ let curVersion = null;
 try {
   const pkg = bin ? path.join(bin, '../../package.json') : null;
   if (pkg && fs.existsSync(pkg)) curVersion = JSON.parse(fs.readFileSync(pkg, 'utf8')).version;
+  else if (bin) curVersion = (bin.match(/versions[\\/](\d+\.\d+\.\d+)/) || [])[1] || null;   // 原生安装没有 package.json，版本号在路径里
 } catch { /* 版本读不到不致命 */ }
 
 let prev = null;
