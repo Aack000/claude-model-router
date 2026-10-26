@@ -10,10 +10,16 @@
  *
  * 做三件事，都能用 uninstall.js 撤回：
  *   1. 插件文件 → ~/.claude/plugins/model-router/（脚本、文档、commands / agents 原件、安装入口）。
- *      仓库本身就克隆在这个目录时跳过这一步；从上次装好的副本重跑（目录里没有 .git）也不复制，命令和子代理按清单里的记录部署
+ *      从别处（克隆的仓库、解压出来的目录）跑：复制过去。从插件目录自己跑，分两种，开头会打印走了哪种：
+ *      · 副本模式：目录里没有 .git，且上次安装清单里的插件文件记录至少 1 条、这些文件全都还在、内容和记录的一模一样
+ *        （= 上次装好后原封未动的那份）。插件文件不动，命令和子代理按记录部署（目录里的旧版残留如 commands/dev.md 不会被当成源文件），记录原样带进新清单
+ *      · 原地模式：其余情况——克隆的仓库就在这里，或把发布包解压进了这个目录（第一次装、清单里没有插件文件记录、
+ *        解压覆盖过新版、手改过插件文件，都归这里）。不复制插件文件、不记进清单，命令和子代理按目录里现有的文件部署，
+ *        只排除已知的旧版文件名（见 LEGACY）。所以卸载时这些插件文件不会被删，要删自己删整个目录
  *   2. commands/*.md → ~/.claude/commands/，agents/*.md → ~/.claude/agents/。
  *      目标已存在且内容不同的，先备份成 <原名>.bak-<时间>；上次安装放进去、之后没被改过的直接覆盖（升级）。
- *      上一版装过、这一版没有的文件：没被改过的删掉，被改过的留着只提示（都不再进清单）
+ *      上一版装过、这一版没有的文件：没被改过的删掉，被改过的留着只提示（都不再进清单）；
+ *      本次部署的目标、源目录 commands/ agents/ 里还有同名文件的目标，一律不删
  *   3. 用户级 ~/.claude/settings.json 的 permissions.allow 按选择加放行规则（清单见 RULES）。
  *      为什么：auto 模式的分类器会误拦这几个脚本，/route 就卡住等人；命中放行规则的命令不送分类器。
  *      每条规则只放一个插件自带脚本，脚本自己守边界（只删过程文件 / 只读），规则才敢放宽到任意参数。
@@ -22,6 +28,8 @@
  *      规则只能由用户自己加：Claude 在 auto 模式下给自己放权会被拦，这也是本脚本要用户亲手跑的原因。
  *
  * 不做的：modelSettings、autoCompactWindow、ANTHROPIC_DEFAULT_*_MODEL 因人而异，按 docs/GUIDE.md 手动配。
+ * 可选的另一步：ccswitch-caps.js（安装入口菜单 4）给 CC Switch 里第三方模型的卡片补能力声明；它补过什么记在清单的 ccswitchCaps 里，
+ * 重装原样带着，卸载时按它撤回。
  * Windows / macOS / Linux 通用，只要有 Node.js。装完要重启 Claude Code，新的 agent 才会加载。
  */
 
@@ -50,6 +58,10 @@ const RULES = [
   { id: 'doctor', script: 'doctor', def: false, desc: '升级后体检，只放不带参数的（--gateway 要读凭据，不放）',
     rules: [`Bash(node ${P}/doctor.js)`] },
 ];
+
+// 改名前的旧版文件 [目录（相对 ~/.claude）, 文件名]：装完只提示，不动；
+// 在插件目录里就地部署（原地模式）时，也靠它把 commands / agents 里的旧版残留从源文件里排除
+const LEGACY = [['commands', 'dev.md'], ['commands', 'automode.md'], ['plugins/model-router', 'dev-check.js'], ['plugins/model-router', 'dev-clean.js'], ['plugins/model-router', 'automode-check.js']];
 
 // ---------- 参数 ----------
 const argv = process.argv.slice(2);
@@ -160,6 +172,7 @@ async function main() {
   const manifest = { installedAt: new Date().toISOString(), version: null, files: [], backups: [], rules: [...sel], rulesAdded: [] };
   try { manifest.version = JSON.parse(fs.readFileSync(path.join(SRC, '.claude-plugin', 'plugin.json'), 'utf8')).version; } catch { /* 没有清单也能装 */ }
   manifest.backups = (prev?.backups || []).filter((b) => fs.existsSync(b));   // 历次备份都留着，卸载时一起列出
+  if (Array.isArray(prev?.ccswitchCaps)) manifest.ccswitchCaps = prev.ccswitchCaps;   // ccswitch-caps.js 补过的记录，重装不能丢
   const oldBackups = manifest.backups.length;
   const prevSha = new Map((prev?.files || []).map((f) => [f.target, f.sha]));
 
@@ -191,23 +204,49 @@ async function main() {
   // ---------- 1. 插件文件 ----------
   const norm = (p) => { const r = fs.existsSync(p) ? fs.realpathSync(p) : path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
   const inPlace = norm(SRC) === norm(PLUGIN);
-  // 「就在插件目录」有两种：git 克隆就放在那儿，或上次安装复制过去的副本（没有 .git、有清单）。
-  // 副本里会躺着旧版残留（比如已改名的 commands/dev.md），不能 readdir 当源文件部署，只信清单；插件文件的记录原样带进新清单
-  const copyMode = inPlace && !!prev && !fs.existsSync(path.join(SRC, '.git'));
+  // 从插件目录自己跑（inPlace）有两种处理：
+  //  · 副本模式：上次安装复制过去的那份「原封未动」——没有 .git、清单里 plugin 记录至少 1 条、这些文件全都还在且 sha 和记录一致。
+  //    里面会躺着旧版残留（比如已改名的 commands/dev.md），所以不 readdir，只信清单；plugin 记录原样带进新清单
+  //  · 原地模式：其余一律按「仓库就在这里」处理（克隆的仓库；解压发布包直接装；解压新版覆盖过旧装；手改过插件文件）。
+  //    这时清单信不得——没有记录会把命令和子代理当「这一版没有的」全删，记录旧了会漏部署新增的文件——
+  //    所以 readdir 列源文件，只排除已知旧版文件名；插件文件不复制、也不记 plugin 记录
+  const hasGit = fs.existsSync(path.join(SRC, '.git'));
   const prevPlugin = (prev?.files || []).filter((f) => f.kind === 'plugin');
+  const untouched = (f) => { try { return fs.statSync(f.target).isFile() && sha(f.target) === f.sha; } catch { return false; } };
+  const rel = (p) => path.relative(PLUGIN, p).split(path.sep).join('/');
+  let copyMode = false, notCopy = '';
+  if (inPlace && !hasGit) {
+    if (!prev) notCopy = '没有上次的安装清单，这是第一次装';
+    else if (!prevPlugin.length) notCopy = '上次的安装清单里没有插件文件的记录';
+    else {
+      const changed = prevPlugin.filter((f) => !untouched(f));
+      if (changed.length) notCopy = `${changed.length} 个插件文件和上次装好时不一样或已不在（${changed.slice(0, 3).map((f) => rel(f.target)).join('、')}${changed.length > 3 ? ' 等' : ''}）`;
+      else copyMode = true;
+    }
+  }
+  const legacyRel = new Set(LEGACY.map(([d, n]) => `${d}/${n}`));
   /** 副本模式：dir（commands / agents）下的源文件取自清单里的插件文件记录，文件还在才算 */
-  const listFromManifest = (dir) => prevPlugin.map((f) => path.relative(PLUGIN, f.target))
-    .filter((r) => path.dirname(r) === dir && r.endsWith('.md') && fs.existsSync(path.join(SRC, r))).map((r) => `${dir}/${path.basename(r)}`);
-  const listSrc = (dir) => (copyMode ? listFromManifest(dir) : listMd(dir));
+  const listFromManifest = (dir) => prevPlugin.map((f) => rel(f.target))
+    .filter((r) => path.posix.dirname(r) === dir && r.endsWith('.md') && fs.existsSync(path.join(SRC, r))).map((r) => `${dir}/${path.posix.basename(r)}`);
+  /** 原地模式：readdir，但旧版文件名不当源文件（它们只是改名前留下的残留） */
+  const listInPlace = (dir) => listMd(dir).filter((r) => {
+    if (!legacyRel.has(r)) return true;
+    say(`不部署 ${PLUGIN}/${r}：改名前的旧版文件，只是残留`);
+    return false;
+  });
+  const listSrc = (dir) => (copyMode ? listFromManifest(dir) : inPlace ? listInPlace(dir) : listMd(dir));
   if (copyMode) {
-    say('从已安装的副本重跑：插件文件不动，只按记录重新部署命令和子代理');
-    manifest.files.push(...prevPlugin);   // sha 用记录里的、不重算：装完后被改过的，卸载时仍然不删
+    say('副本模式：插件目录里的文件和上次装好时一模一样，插件文件不动，命令和子代理按清单里的记录重新部署');
+    manifest.files.push(...prevPlugin);   // sha 用记录里的、不重算（此时必然和现文件一致）
+  } else if (inPlace && hasGit) {
+    say(`仓库就在 ${PLUGIN}，跳过复制插件文件；命令和子代理按目录里现有的文件部署（旧版文件名除外），插件文件不记进清单`);
   } else if (inPlace) {
-    say(`仓库就在 ${PLUGIN}，跳过复制插件文件`);
+    say(`仓库就在 ${PLUGIN}（没有 .git，也不是上次装好后原样没动的那份：${notCopy}），跳过复制插件文件；`
+      + '命令和子代理按目录里现有的文件部署（旧版文件名除外），插件文件不记进清单，卸载时不会删它们');
   } else {
     const pluginFiles = ['.claude-plugin/plugin.json', 'README.md', 'LICENSE', 'install.js', 'uninstall.js',
       'setup.js', 'setup.cmd', 'setup.ps1', 'setup.sh', 'setup.command',
-      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'provider.js',
+      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'provider.js', 'ccswitch-caps.js',
       ...listMd('commands'), ...listMd('agents'), ...listMd('docs'), ...listMd('providers', '.json')]
       .filter((f) => fs.existsSync(path.join(SRC, f)));
     for (const f of pluginFiles) place(f, path.join(PLUGIN, f), 'plugin');
@@ -221,10 +260,15 @@ async function main() {
   // 不处理的话它们既不在新清单里、卸载也删不掉，永远残留。没被改过的删掉；被改过的留着，但也不再记进清单
   const pk = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };   // 大小写不敏感的盘上，别把刚放好的文件当成「没有的」
   const nowTargets = new Set(manifest.files.map((f) => pk(f.target)));
+  const srcDirOf = { command: 'commands', agent: 'agents' };
   for (const f of prev?.files || []) {
-    if (nowTargets.has(pk(f.target))) continue;
+    if (nowTargets.has(pk(f.target))) continue;   // 本次刚部署的（含大小写不同的同一个文件），不删
     if (inPlace && f.kind === 'plugin') continue;   // 仓库自己的文件，绝不删（副本模式的已经带进新清单了）
     if (!fs.existsSync(f.target)) continue;
+    // 源目录 commands/ agents/ 里还有同名文件：这一版没部署它多半是被排除了（比如旧版文件名），但源文件还在，
+    // 目标是留着还是删交给使用方，安装器不替人定
+    const sd = srcDirOf[f.kind];
+    if (sd && fs.existsSync(path.join(SRC, sd, path.basename(f.target)))) { say(`上一版装过的 ${f.target}：源目录 ${sd}/ 里还有同名文件，没删`); continue; }
     if (sha(f.target) === f.sha) { say(`删 上一版装过、这一版没有的：${f.target}`); if (!DRY) fs.unlinkSync(f.target); }
     else say(`上一版装过、这一版没有，但被改过，没删：${f.target}`);
   }
@@ -264,8 +308,7 @@ async function main() {
   if (!DRY) { fs.mkdirSync(PLUGIN, { recursive: true }); fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n'); }
 
   // 旧版文件只提示，不动
-  const legacy = [['commands', 'dev.md'], ['commands', 'automode.md'], ['plugins/model-router', 'dev-check.js'], ['plugins/model-router', 'dev-clean.js'], ['plugins/model-router', 'automode-check.js']]
-    .map(([d, n]) => path.join(CLAUDE, d, n)).filter((p) => fs.existsSync(p));
+  const legacy = LEGACY.map(([d, n]) => path.join(CLAUDE, d, n)).filter((p) => fs.existsSync(p));
   if (legacy.length) console.log(`\n发现旧版（改名前）的文件，没动它们，确认不用了可以自己删：\n  ${legacy.join('\n  ')}`);
 
   console.log(`\n${DRY ? '试运行结束，没改任何文件。' : '装好了。'}文件 ${manifest.files.length} 个，本次备份 ${manifest.backups.length - oldBackups} 个。`);

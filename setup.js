@@ -3,9 +3,9 @@
 /**
  * setup —— 安装入口。双击启动器（setup.cmd / setup.ps1 / setup.command）和命令行（setup.sh）最终都跑它
  *
- * 用法：node setup.js [install|uninstall] [其余参数原样交给 install.js / uninstall.js]
- *   不给动作 = 菜单：1 安装·升级　2 卸载　3 试运行
- *   例：node setup.js install --rules=clean,check　　node setup.js uninstall --dry-run
+ * 用法：node setup.js [install|uninstall|caps] [其余参数原样交给 install.js / uninstall.js / ccswitch-caps.js]
+ *   不给动作 = 菜单：1 安装·升级　2 卸载　3 试运行　4 给 CC Switch 卡片补能力声明（第三方模型，要先装好插件）
+ *   例：node setup.js install --rules=clean,check　　node setup.js uninstall --dry-run　　node setup.js caps --dry-run
  *   --pause   跑完等回车再退出（双击启动器加，免得窗口一闪就关）
  *
  * 菜单这一行用同步逐字节读：不在 stdin 上留挂起的读，后面 install.js 问放行规则时，输入才不会被这里抢走
@@ -17,7 +17,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const ACTIONS = { install: 'install.js', uninstall: 'uninstall.js' };
+const ACTIONS = { install: 'install.js', uninstall: 'uninstall.js', caps: 'ccswitch-caps.js' };
 const args = process.argv.slice(2);
 const PAUSE = args.includes('--pause');
 const rest = args.filter((a) => a !== '--pause');
@@ -52,13 +52,14 @@ function menu() {
     state = `已装${m.version ? ` ${m.version}` : ''}（${String(m.installedAt).slice(0, 10)}）`;
   } catch { /* 没装，或不是安装器装的 */ }
   console.log(`model-router 安装器：装到 ${claude}，当前${state}\n`);
-  console.log('  1  安装 / 升级\n  2  卸载\n  3  试运行（只列安装会改什么，不动文件）\n  q  退出\n');
+  console.log('  1  安装 / 升级\n  2  卸载\n  3  试运行（只列安装会改什么，不动文件）\n  4  给 CC Switch 卡片补能力声明（第三方模型）\n  q  退出\n');
   for (;;) {
     const a = readLineSync('选哪个 [1]：');
     if (a === null) { console.log('\n没有输入，什么都没做。'); return 1; }
     const c = a.trim().toLowerCase() || '1';
     if (c === '1') return run('install.js', []);
     if (c === '3') return run('install.js', ['--dry-run']);
+    if (c === '4') return run('ccswitch-caps.js', []);
     if (c === 'q') return 0;
     if (c === '2') {
       const y = readLineSync('确认卸载？输入 y 回车确认，直接回车取消：');
@@ -73,6 +74,6 @@ function menu() {
 let code;
 if (!rest.length) code = menu();
 else if (ACTIONS[rest[0]]) code = run(ACTIONS[rest[0]], rest.slice(1));
-else { console.error(`不认识的动作：${rest[0]}\n用法：setup [install|uninstall] [参数…]；不带参数出菜单`); code = 2; }
+else { console.error(`不认识的动作：${rest[0]}\n用法：setup [install|uninstall|caps] [参数…]；不带参数出菜单`); code = 2; }
 if (PAUSE) readLineSync('\n按回车关闭窗口');
 process.exit(code);

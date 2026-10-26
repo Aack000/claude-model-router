@@ -146,10 +146,12 @@ const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 5) : '--:--';
 {
   const s = scan(main);
   mainCtx = s.lastCtx;
-  // 主模型的优先级同 CLI：ANTHROPIC_MODEL 环境变量 > settings.model；值可以是别名，也可以是完整模型 ID（第三方供应商常这么写）
+  // 主模型的优先级同 CLI：ANTHROPIC_MODEL 环境变量 > settings.model；值可以是别名，也可以是完整模型 ID（第三方供应商常这么写）。
+  // 只有含 - 的才是完整模型 ID，才拿来逐条比对；opusplan、best、default 这类 CLI 合法别名不在上面四个里，实际跑哪个模型由 CLI 当场决定，
+  // 没有固定的「应跑」，pin 留空、不比对（拿它当模型 ID 比，每次都会误报「中途切过」）
   const spec = String(process.env.ANTHROPIC_MODEL || (settings.env || {}).ANTHROPIC_MODEL || settings.model || 'opus');
   const alias = bareId(spec);
-  const pin = ALIASES.includes(alias) ? pinOf(alias) : alias;
+  const pin = ALIASES.includes(alias) ? pinOf(alias) : alias.includes('-') ? alias : null;
   const notes = [];
   const off = pin ? s.models.filter((m) => bareId(m) !== pin) : [];
   if (off.length) {

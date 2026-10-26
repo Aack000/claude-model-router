@@ -324,15 +324,18 @@ if (QUICK) {
       }
 
       // 校验实际生效的主模型。它可能是 opusplan/best 这类不在 EXPECTED.aliases 里的值，
-      // 也可能是 env.ANTHROPIC_MODEL 里的完整 model ID（那种不是别名，跳过别名校验）
+      // 也可能是 env.ANTHROPIC_MODEL 里的完整 model ID（那种不是别名，跳过别名校验）。
+      // 完整 ID 的判据是含 -（claude-opus-5-5、deepseek-flash）；不是 claude- 开头的是第三方供应商的模型，CLI 本来就不认识，不算错
       const effective = (settings && (settings.env?.ANTHROPIC_MODEL || settings.model)) || null;
       if (effective) {
         const strip = (s) => String(s).replace(/\[\d+m\]$/i, '').toLowerCase();
         const isAlias = aliases.some((a) => strip(a) === strip(effective));
-        const isFullId = /^claude-/i.test(strip(effective));
+        const isFullId = strip(effective).includes('-');
         if (!isAlias && !isFullId) {
           err(`主模型 "${effective}" 既不是合法别名也不像 model ID`,
               `合法别名：${aliases.join(', ')}`);
+        } else if (!isAlias && !/^claude-/i.test(strip(effective))) {
+          ok(`主模型 "${effective}" 是完整模型 ID（第三方模型），CLI 不校验，以供应商的模型名为准`);
         }
       }
     }
@@ -479,6 +482,7 @@ function checkTranscripts() {
   const root = path.join(CLAUDE_DIR, 'projects');
   const since = Date.now() - 14 * 864e5;
   const latestSub = {};        // 家族 → { id, ts }
+  const subModelTs = new Map(); // 子代理记录里出现过的每个模型 ID（小写、去 [1m]）→ 最近一次时间；第三方钉值靠它核对，famOf 对它们返回 null
   const mainWrites = [];       // { ts, w5, w1h }
   const walk = function* (d) {
     let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
@@ -499,6 +503,8 @@ function checkTranscripts() {
       if (!m?.usage || !m.model || m.model === '<synthetic>' || !o.timestamp) continue;
       const ts = Date.parse(o.timestamp);
       if (isSub) {
+        const mid = bareId(m.model).toLowerCase();
+        if (ts > (subModelTs.get(mid) || 0)) subModelTs.set(mid, ts);
         const fam = famOf(m.model);
         if (fam && (!latestSub[fam] || ts > latestSub[fam].ts)) latestSub[fam] = { id: m.model, ts };
       } else if ((m.usage.cache_creation_input_tokens || 0) > 0) {
@@ -510,7 +516,16 @@ function checkTranscripts() {
 
   const day = (ts) => new Date(ts).toISOString().slice(5, 10);
   const matched = [];
+  const thirdParty = new Map();   // 钉的第三方模型 ID → 钉了它的别名们
   for (const p of envPins) {
+    // 钉的不是 Claude 的模型（DeepSeek 等第三方）：没有「家族最新版」可比，只看最近有没有子代理真的跑过这个 ID。
+    // 不能拿 Claude 家族的最近记录去比——那会在每次切回 Claude 之后误报「子代理没跟上 env」
+    if (!/^claude-/i.test(p.id)) {
+      const key = p.id.toLowerCase();
+      if (!thirdParty.has(key)) thirdParty.set(key, { id: p.id, fams: [] });
+      thirdParty.get(key).fams.push(p.fam);
+      continue;
+    }
     const s = latestSub[p.fam];
     if (!s) continue;
     if (bareId(s.id) === p.id) matched.push(`${p.fam} → ${s.id}（${day(s.ts)}）`);
@@ -518,6 +533,11 @@ function checkTranscripts() {
               '那之后还没跑过 /route 就属正常（改 env 之前的记录）；跑过还这样 = 子代理没跟上新版，检查 agent 文件是不是写死了版本号');
   }
   if (matched.length) ok(`子代理实测版本与 env 一致：${matched.join('，')}`);
+  for (const [key, t] of thirdParty) {
+    const ts = subModelTs.get(key);
+    if (ts) ok(`子代理实测跑过 ${t.id}（${t.fams.join('/')} 钉的第三方模型）：最近一次 ${day(ts)}`);
+    else ok(`ℹ 最近 14 天还没有子代理跑过 ${t.id}（${t.fams.join('/')} 钉的第三方模型）：钉了之后还没跑过 /route 就正常`);
+  }
 
   const mainTtl = settings?.env?.CLAUDE_CODE_PROMPT_CACHE_TTL || settings?.promptCacheTtl;
   if (mainTtl === '1h') {

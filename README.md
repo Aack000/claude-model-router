@@ -65,6 +65,7 @@ doctor.js                      配置体检（网关、别名、孤儿键等）
 usage-audit.js                 用量统计（价格口径内置；基线用 --baseline 自行生成，不入库）
 route-clean.js              清理 /route 过程文件
 provider.js                    只给一个会话换供应商（不动 CC Switch、不改 settings.json）
+ccswitch-caps.js               给 CC Switch 里映射到第三方模型的卡片补能力声明（安装菜单第 4 项）
 providers/*.json               供应商配置（别名映射、能力声明、key 从哪个环境变量读）
 setup.cmd / .ps1 / .sh / .command   安装入口：双击或命令行，出菜单（Windows / PowerShell / Linux·macOS / macOS 访达）
 setup.js                       菜单本体（上面四个都调它）
@@ -91,7 +92,7 @@ git clone https://github.com/Aack000/claude-model-router.git
 | macOS | `setup.command`（访达里双击） | `./setup.sh` |
 | Linux | — | `./setup.sh` |
 
-不带参数出菜单：1 安装 / 升级、2 卸载、3 试运行（只列会改什么，不动文件）。选了安装会逐条列出放行规则让你勾，直接回车按默认。
+不带参数出菜单：1 安装 / 升级、2 卸载、3 试运行（只列会改什么，不动文件）、4 给 CC Switch 卡片补能力声明（见下面「换供应商」）。选了安装会逐条列出放行规则让你勾，直接回车按默认。
 
 带参数就直接执行、不出菜单：
 
@@ -105,7 +106,9 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 安装做三件事，可以重复跑（重复跑就是升级，想改放行规则的选择也是再跑一次）：
 
-1. 插件文件放到 `~/.claude/plugins/model-router/`（`route.md` 按这个路径调用脚本）
+1. 插件文件放到 `~/.claude/plugins/model-router/`（`route.md` 按这个路径调用脚本）。把 zip 解压进插件目录、再从那里跑安装时，分两种情况：
+   - 目录里没有 `.git`，且文件和上次装好时完全一致：**副本模式**，正常升级
+   - 否则（克隆的仓库就在那里、第一次就解压在那里、解压了新版覆盖进来、或文件被改过）：**原地模式**——插件文件不复制、不记进清单，只部署命令和子代理。卸载时插件目录里的文件不会被删，要自己删整个目录
 2. `commands/*.md` → `~/.claude/commands/`，`agents/*.md` → `~/.claude/agents/`；会覆盖的旧文件先备份成 `*.bak-<时间>`
 3. 用户级 `~/.claude/settings.json` 的 `permissions.allow` 按你的选择加放行规则：
 
@@ -120,7 +123,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 装完**重启 Claude Code**，再按下面「手动安装」第 3 步配 `settings.json`（模型别名和 effort 因人而异，脚本不替你改）。
 
-卸载：再跑一次入口选「卸载」，或 `node ~/.claude/plugins/model-router/uninstall.js`（同样支持 `--dry-run`）。它只撤回安装时放进去、之后没改过的文件，以及安装器加的规则；备份不动，列出路径。
+卸载：再跑一次入口选「卸载」，或 `node ~/.claude/plugins/model-router/uninstall.js`（同样支持 `--dry-run`）。它只撤回安装时放进去、之后没改过的文件，以及安装器加的规则；备份不动，列出路径。补过 CC Switch 能力声明的，卸载会先一起撤回（要先退出 CC Switch；检测不了它在不在运行时会问你一次）。撤得成的先撤掉；撤不了的（没有 node:sqlite、数据库挪了位置之类）留在清单里，卸载就此中止，插件文件、命令、放行规则都不动，并提示两条路：把数据库放回原处再卸载，或加 `--keep-ccswitch-caps` 让补的几行留在卡片里。
 
 平台注意：
 
@@ -179,6 +182,16 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 **① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`providers/deepseek.json`](providers/deepseek.json) 的 `env`（再加上 key）。
 
+卡片里常漏的是能力声明（`ANTHROPIC_DEFAULT_*_MODEL_SUPPORTED_CAPABILITIES`，见下面实测第 3 条）。可以让安装器补：菜单选 4，或者
+
+```bash
+node ~/.claude/plugins/model-router/ccswitch-caps.js --dry-run   # 先看会补什么
+node ~/.claude/plugins/model-router/ccswitch-caps.js             # 列出计划，确认后才写
+node ~/.claude/plugins/model-router/ccswitch-caps.js --undo      # 撤回补过的
+```
+
+它按卡片 `ANTHROPIC_BASE_URL` 的主机名对上 `providers/*.json` 里的供应商，只给映射到第三方模型的别名补**缺的**能力声明和 `_NAME`，已有的键不改；对不上的卡片只列出来、不动。当前卡片以本机 `~/.claude/settings.json` 为准（CC Switch 的编辑框读写的就是它）：本机缺的才补，数据库里那份副本跟着补；本机已有的键不动。撤回只删值还是当初补的那几行，值被你改过的报一次就不再管；数据库搬了位置用 `--undo --db <新路径>`。写之前要求先退出 CC Switch，先备份数据库和 settings.json，写完核对其余内容一字不差；输出里不出现 key 和完整地址。要 Node 22.5+（读 CC Switch 的 SQLite 数据库），版本不够会列出要手动加的几行。
+
 **② `provider.js`（只换这一个会话）**：CC Switch 当前卡片不动，可以一边开 Claude 会话、一边开 DeepSeek 会话。在项目目录里：
 
 ```bash
@@ -190,9 +203,24 @@ node ~/.claude/plugins/model-router/provider.js --list                          
 
 其余参数原样交给 `claude`（如 `--resume`）。它把 `providers/<名字>.json` 的 env 加上 key 写进临时文件，用 `claude --settings` 启动；这个文件的优先级高于用户级 settings.json，只对这个进程生效，会话结束就删。Windows 上刚设的环境变量要新开窗口才进进程，所以它还会去注册表读。加别的供应商就照 `deepseek.json` 再写一份。
 
+**别直接改 `providers/deepseek.json`**：它是安装器管理的文件，升级时会被备份后覆盖。要换映射就复制一份、另起名字再改，`--list` 会列出来。例如想让规划和审查跑 `deepseek-v4-pro`：
+
+```bash
+cd ~/.claude/plugins/model-router/providers
+cp deepseek.json deepseek-pro.json    # 在 deepseek-pro.json 里把 FABLE、OPUS 两行换成 deepseek-v4-pro[1M]
+node ~/.claude/plugins/model-router/provider.js deepseek-pro
+```
+
+几处保护：
+
+- `--key-env` 只认环境变量的名字（`--key-env 名字`、`--key-env=名字` 都行），填成 key 本身会被拒绝（不回显、不去查）
+- 实际生效的主模型（用户级配置，或当前目录的项目配置 `.claude/settings.json`、`settings.local.json`）若是完整模型 ID（如 `claude-opus-5-5`），这个会话会自动改成 OPUS 别名映射的模型并打印一行说明，不然 DeepSeek 会把它按最贵的模型计费；透传了 `--model` 就不动
+- Windows 上经 cmd 启动，参数里含 `%` 或换行没法安全转义，会被拒绝（exit 2）
+- 含 key 的临时设置文件在会话结束、按 Ctrl+Break、直接点 × 关终端时都会删掉；异常退出留下的，下次启动时清掉
+
 DeepSeek 10-26 实测：
 
-- 两个模型 `deepseek-flash`、`deepseek-v4-pro`，都是 1M 上下文。`providers/deepseek.json` 按最省钱的方式把四个别名全映射到 flash；想让规划和审查更强，把 FABLE、OPUS 两行换成 `deepseek-v4-pro[1M]`
+- 两个模型 `deepseek-flash`、`deepseek-v4-pro`，都是 1M 上下文。`providers/deepseek.json` 按最省钱的方式把四个别名全映射到 flash；想让规划和审查更强，按上面的办法复制一份，把 FABLE、OPUS 两行换成 `deepseek-v4-pro[1M]`
 - 规划、审查、实现三个子代理和主会话都按映射跑在 flash 上；auto 模式的权限分类器跑在 sonnet 别名映射的模型上，在 DeepSeek 上能正常工作
 - CLI 认不出第三方模型的能力，要用 `ANTHROPIC_DEFAULT_*_MODEL_SUPPORTED_CAPABILITIES` 声明，否则可能不发 effort / thinking。DeepSeek 接口接受 `effort,xhigh_effort,max_effort,thinking,adaptive_thinking` 这几种写法
 - 几个别名映射到同一个模型时，CLI 分不清子代理是哪个角色，各角色的 effort 会套成同一档（sonnet 配 high，实际跑 xhigh）。`route-check` 遇到这种情况只给说明、不报错，`doctor` 会提示
