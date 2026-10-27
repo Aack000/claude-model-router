@@ -1,7 +1,7 @@
 {
   "name": "model-router",
   "displayName": "分阶段模型调控",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "按任务阶段分配模型：Fable 规划 / Sonnet 执行 / Opus 查错，降低 token 开销同时控制 bug 率",
   "author": {
     "name": "Aack000"

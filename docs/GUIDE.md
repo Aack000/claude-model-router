@@ -316,6 +316,8 @@ setup caps      […]                                                      （�
 - 同一个 stdin 上菜单、放行规则、配置各读各的一行：`printf '1\n\n\n' | ./setup.sh` 能走完整个 flow（每一步回车按默认）。
 - 环境变量 `MR_SETUP_FLOW`：串着跑时 `setup` 给安装这一步设的，值是后面还要跑哪几步（逗号分隔，如 `configure,doctor`）；`install.js` 据此决定结尾的「下一步」怎么写——后面有配置这一步就不再提示手动配；单独跑 `install.js`（或用 `--no-configure` 跳过了）才提示「接着跑 `configure.js`（或安装入口菜单 5）」。这是内部约定，不用自己设；外面残留的会被清掉。
 
+**放行规则管不到派子代理**：`permissions.allow` 里写 `Agent` / `Agent(*)` / `Agent(general-purpose)` 在 auto 模式下会被 CLI 整条摘掉（判「危险规则」时不看括号内容），等于没写；子代理自己的工具调用也各自过分类器。查证过程、debug 日志原文和重验方法见 [TECH-LIBRARY §3](TECH-LIBRARY.md)；免拦的办法是临时切出 auto（Shift+Tab）。
+
 **`configure.js` 单独用**
 
 ```bash
@@ -455,7 +457,7 @@ node ~/.claude/plugins/model-router/uninstall.js [--dry-run] [--keep-ccswitch-ca
             → 🟡 问你（S4）→ 🔴 ＋ 你批准的 🟡 一起派 sonnet 修 → 同一审查员复审一次（新发现编 N1…）
    ↓ 阶段 4.5：sonnet 写文档（描述修复后的代码）
    ↓ 阶段 5：清理临时文件（审查报告保留）· 不提交、不推送
-汇报：改了什么 / 决定清单（每条谁定的）/ 修了哪几条 / 没验证的 / route-check 模型核实表 / 未提交的改动
+汇报：问题 / 解法（含决定清单，每条谁定的）/ 现状（审查报告、修了哪几条、没验证的、未提交的改动）/ 一行模型核对
 ```
 
 几个刻意的设计：
@@ -508,7 +510,7 @@ node ~/.claude/plugins/model-router/route-check.js                 # 当前会�
 node ~/.claude/plugins/model-router/route-check.js --from 1760000000  # 只看这个时间戳之后有活动的记录（/route 开工时 date +%s 记下）
 node ~/.claude/plugins/model-router/route-check.js --since 90      # 同上，换算成最近 90 分钟
 node ~/.claude/plugins/model-router/route-check.js --session ff02  # 指定会话
-node ~/.claude/plugins/model-router/route-check.js --from 1760000000 --full  # 没问题也打完整表（/route 最后汇报用）
+node ~/.claude/plugins/model-router/route-check.js --from 1760000000 --full  # 没问题也打完整表（人工核对时用）
 ```
 
 没有 ❌ 和 ⚠ 时只打一行：各角色个数，加上「主会话当前上下文」（最后一次调用送进去的 token 数）。有问题才打完整表。一轮 /route 要跑一二十次，整表每次进主会话约 1 万 token，全是重复的 ✅。route.md 用这个上下文数判断：审查报告落盘后，上下文超过 300k 时附一行现成的 `/compact`，只给不催。
@@ -627,6 +629,7 @@ rm ~/.claude/commands/route.md \
 - **`modelSettings` 的键**走别名规范化，写 `sonnet` / `opus` / `fable` / `haiku` 即可，不必写完整 model ID。
 - **command frontmatter 的 `agent:` 字段**（解析结构里确认存在）也许能直接声明用哪个 agent 跑，未验证。当前靠正文指示，是确定可行的路径。
 - **模型：除 Claude 系外，目前只实测适配了 DeepSeek**，其他供应商还没适配；`/route` 按 CC Switch 当前卡片的模型映射走（做法见 README「换供应商」）。跨宿主（Codex）的调研结论在 [`TECH-LIBRARY.md`](TECH-LIBRARY.md)，09-30 搁置。
+- **auto 模式下的放行规则**：`Agent`、`SendMessage` 的 allow 规则会被 CLI 整条摘掉（见 [TECH-LIBRARY §3](TECH-LIBRARY.md)）；若服务端打开 `tengu_ant_yolo_equiv_strip_config`（yolo-equiv，默认关），auto 下连 Bash / PowerShell 的 allow 规则也会一起失效，安装器加的四条规则随之无效。
 
 ---
 
@@ -660,6 +663,8 @@ rm ~/.claude/commands/route.md \
 
 ## 统一度量衡：`usage-audit.js`
 
+usage-audit 给的是**迭代对比用的相对数**；实际花了多少，以网关账单或 CC Switch 余额为准——可见部分已和网关核过，不准的是隐形的 29%，比相对变化时误差基本抵消。
+
 **为什么需要它**：此前每次分析都临时写脚本，口径不固定，反复得出又推翻结论。踩过的六个口径陷阱：
 
 | # | 陷阱 | 造成的错误结论 |
@@ -677,7 +682,7 @@ rm ~/.claude/commands/route.md \
 EIU（等效输入单位） = input×1 + output×5 + cacheWrite×1.25 + cacheRead×0.1
 ```
 
-按 Anthropic 官方价格比例把四类 token 折算到同一标尺，**与模型无关**，跨天跨模型可比。
+EIU 是**固定权重的体量指数**，不是算力也不是花费——权重按 4/5 代公开价比例定，而 5.5 代读缓存只有输入价的 0.05 倍（fable 0.025），所以对 sonnet / opus 的 EIU 比按价折算高估约 1.4 倍。跨天、跨模型（同代）可比；**要看钱看 `$` 列**（按各模型公开价分项算）。
 
 ```
 活跃工时 = 相邻调用间隔 ≤30 分钟才累加，超过视为休息
@@ -708,8 +713,8 @@ node usage-audit.js --project <目录名>   # 只看某个项目
 
 | 指标 | 看什么 | 越低越好？ |
 |---|---|---|
-| **EIU/h** | 单位时间烧钱速度。**最核心**，排除了工时差异 | ✅ |
-| **$/h** | 同上，但含模型单价收益 | ✅ |
+| **EIU/h** | 固定权重体量指数的烧量速度，排除了工时差异，趋势 / 基线对比用——**不代表花费** | ✅ |
+| **$/h** | 单位时间花费。**主指标**，含模型单价差异 | ✅ |
 | **EIU/调用** | 平均每次请求背多少上下文 → 查上下文膨胀 | ✅ |
 | **子代理平均规模** | 拆得够不够细 | ✅ |
 | **命中率** = `cr/(cr+cw)` | 缓存效率 | ❌ 越高越好 |

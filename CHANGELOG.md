@@ -2,6 +2,31 @@
 
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v1.0.1
+
+日期：2026-10-27
+
+### 修复
+
+- 打印模型 ID 时给 Bedrock ARN 的 12 位账号号码打码（`doctor` / `configure` / `uninstall` / `provider` / `route-check` / `usage-audit` / `ccswitch-caps`），比较和查表仍用原值
+- `doctor.js` 的报错不再回显原文：`settings.json` 语法错只报「不是合法 JSON（第 N 行附近）」，网关与 transcript 的报错只报分类和错误码，避免把 key、带凭据的 URL、完整路径打出来
+- `doctor.js` 读 `settings.json` 前先去掉 BOM（和 `configure` / `ccswitch-caps` / `uninstall` 一致）；一个读不了的 transcript 不再让整段检查中止，只记下第一个失败的文件名继续扫
+
+### 变更
+
+- `/route` 最后汇报精简为四条：问题 / 解法（含决定清单）/ 现状（审查报告、修了哪几条、没验证的、未提交的改动）/ 一行模型核对；不再贴 `route-check` 全表、模型构成和用量。装过的用户下次跑一次安装入口才会更新 `route.md`
+
+### 文档
+
+- README 给出 EIU 定义并说明它是体量指数、不是花费，实际花费以网关账单或 CC Switch 余额为准
+- 新增 auto 模式下 `Agent` / `SendMessage` 放行规则不生效的调查结论（TECH-LIBRARY §3、GUIDE 安装与已知边界）
+- `doctor --gateway` 的报错按原因分类：base URL 写法问题、返回的不是模型列表格式、网络问题，修复建议不再一律让人等网络
+
+### 已知限制
+
+- auto 模式下 `Agent` 的 `permissions.allow` 规则会被 CLI 整条摘掉，派子代理没法靠规则免拦
+- 服务端若打开 yolo-equiv 开关（默认关），auto 下连 Bash / PowerShell 的 allow 规则也会一起失效
+
 ## v1.0.0
 
 日期：2026-10-27

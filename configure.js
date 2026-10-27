@@ -117,9 +117,11 @@ const stamp = () => { const d = new Date(), z = (n) => String(n).padStart(2, '0'
 const uniq = (p) => { let q = p, i = 2; while (fs.existsSync(q)) q = `${p}-${i++}`; return q; };
 /** 解析 JSON：出错只说「不行」，不回显原文（原文里有 token；Node 的报错信息里会带一段原文） */
 const tryParse = (t) => { try { return { ok: true, v: JSON.parse(String(t).charCodeAt(0) === BOM.charCodeAt(0) ? String(t).slice(1) : t) }; } catch { return { ok: false }; } };
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 /** 打印一个值：只放行看起来像模型名 / 档位的短字符串和数字，别的不显示（这些键的值不该是密钥，但输出里一个密钥都不许有） */
 const disp = (v) => {
-  if (typeof v === 'string') return /^[\w.\-[\]:\/ ]{0,60}$/.test(v) && !/sk-|key|token|secret|bearer/i.test(v) ? JSON.stringify(v) : '（不是常规值，不显示）';
+  if (typeof v === 'string') return /^[\w.\-[\]:\/ ]{0,60}$/.test(v) && !/sk-|key|token|secret|bearer/i.test(v) ? JSON.stringify(maskArn(v)) : '（不是常规值，不显示）';
   if (typeof v === 'number' || typeof v === 'boolean' || v === null) return String(v);
   return '（不是常规值，不显示）';
 };

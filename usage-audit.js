@@ -27,6 +27,8 @@ const path = require('path');
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(process.env.USERPROFILE || process.env.HOME, '.claude');
 const PROJECTS = path.join(CLAUDE_DIR, 'projects');
 const BASELINE = path.join(__dirname, 'usage-baseline.json');
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 
 // ───────────────────────── 口径定义（改这里就改了全部结论，慎动） ─────────────────────────
 
@@ -180,7 +182,7 @@ function collect(sinceDay) {
       const cr = u.cache_read_input_tokens || 0;
       // 1h TTL 的写入单独计价（开了 promptCacheTtl / cacheTtl 之后才会有）
       const cw1h = Math.min(cw, u.cache_creation?.ephemeral_1h_input_tokens || 0);
-      const model = (m.model || 'unknown').replace(/^claude-/, '');
+      const model = maskArn((m.model || 'unknown').replace(/^claude-/, ''));
 
       const row = {
         day, file, isSub, model,

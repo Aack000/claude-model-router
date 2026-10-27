@@ -46,6 +46,8 @@ const add = (level, msg, fix) => results.push({ level, msg, fix });
 const ok = (m) => add('ok', m);
 const warn = (m, fix) => add('warn', m, fix);
 const err = (m, fix) => add('err', m, fix);
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 
 // ---------- 定位 claude.exe ----------
 function findClaudeBinary() {
@@ -113,11 +115,31 @@ function scanBinary(binPath, patterns) {
 
 // ---------- 检查 1：settings.json（quick 模式只做这些） ----------
 let settings = null;
+let settingsRaw = null;
 try {
-  settings = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
+  settingsRaw = fs.readFileSync(SETTINGS, 'utf8');
 } catch (e) {
-  err(`settings.json 读不了或不是合法 JSON：${e.message}`,
-      `检查 ${SETTINGS}，或从 settings.json.pre-model-router.* 备份恢复`);
+  // 读失败只带错误码（EACCES、ENOENT……），路径在下一行的提示里，不带别的
+  err(`settings.json 读不了（${e.code || e.name}）`,
+      `检查 ${SETTINGS} 在不在、有没有读权限，或从 settings.json.pre-model-router.* 备份恢复`);
+}
+if (settingsRaw !== null) {
+  // 开头的 BOM 先去掉再解析：插件把带 BOM 当正常状态（PowerShell 5.1 存的 UTF-8 文件就带；configure.js / ccswitch-caps.js 的 tryParse、uninstall.js 同一个做法）。
+  // 不另报提示：带 BOM 的合法文件照常体检；行号也按去掉 BOM 后的文本数
+  if (settingsRaw.charCodeAt(0) === 0xFEFF) settingsRaw = settingsRaw.slice(1);
+  try {
+    settings = JSON.parse(settingsRaw);
+  } catch (e) {
+    // 出错只说「不是合法 JSON」加行号，不回显 e.message：Node 的报错里会带出错位置附近约 10 个字符的原文，
+    // 漏引号 / 单引号的 key 会被带出开头几位（configure.js 的 tryParse 同一个约定）。
+    // 行号只从 e.message 里的 line N / position N 取（position 自己数换行）；取不到就不带（「Unexpected token」那种报错没有位置）
+    const msg = String(e && e.message);
+    let line = null, m;
+    if ((m = msg.match(/\(line (\d+) column \d+\)/))) line = Number(m[1]);
+    else if ((m = msg.match(/at position (\d+)/))) line = settingsRaw.slice(0, Number(m[1])).split('\n').length;
+    err(`settings.json 不是合法 JSON${line ? `（第 ${line} 行附近）` : ''}`,
+        `检查 ${SETTINGS}，或从 settings.json.pre-model-router.* 备份恢复`);
+  }
 }
 
 if (settings) {
@@ -476,17 +498,38 @@ async function checkGatewayModels() {
   const token = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY;
   if (!base || !token) return;
   let ids;
+  let phase = 'request';   // 'request' = 请求还没拿到响应；'response' = 已经拿到 res，之后抛的是响应的问题
   try {
     const res = await fetch(`${base}/v1/models?limit=200`, {
       headers: { 'x-api-key': token, authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01' },
       signal: AbortSignal.timeout(10000),
     });
+    phase = 'response';
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     ids = ((await res.json()).data || []).map((m) => m.id);
   } catch (e) {
-    // 只报状态，别把请求头（含 token）带进输出
-    warn(`查不到网关的模型列表（${e.name === 'TimeoutError' ? '超时' : e.message}），跳过新版检查`,
-         '网络恢复后再加 --gateway 跑一次');
+    // 只报分类，不回显 e.message：fetch 的 URL 报错会把整条 URL 带出来（base URL 里可能写了 user:pass@ 或账号路径），
+    // res.json() 的 SyntaxError 会带响应体开头约 10 个字符；请求头（含 token）更不能进输出。HTTP 状态码是上面自己抛的，可以带。
+    // 没有错误码的两类按阶段分：请求阶段抛的（构造请求就失败，多半是 base URL 写法）和拿到 res 之后抛的（结构不对的 JSON，.map / .id 抛 TypeError）。
+    // 带 code 的（ECONNREFUSED、ENOTFOUND 等）是网络层失败，报「请求失败：CODE」、建议等网络恢复。ERR_INVALID_URL 例外：URL 解析失败是 base URL 写法问题（比如漏了 https://），等网络没用，归到「请求没发出去」。
+    // fetch 规范里的禁用端口（1、6000、10080 等）undici 不发起连接，报 'fetch failed' 且没有 code，自然落进「请求没发出去」：那也是 base URL 的问题
+    const code = /^[A-Z][A-Z0-9_]+$/.test(String(e.cause?.code)) ? e.cause.code : null;
+    const netFix = '网络恢复后再加 --gateway 跑一次';
+    let why = '', fix = netFix;
+    if (e.name === 'TimeoutError') why = '超时';
+    else if (/^HTTP \d{3}$/.test(String(e.message))) why = e.message;
+    else if (e instanceof SyntaxError) {
+      why = '响应不是合法 JSON';
+      fix = '网关返回的不是 JSON，多半是 env.ANTHROPIC_BASE_URL 指到了网页而不是接口。检查这一项，改完再加 --gateway 跑一次';
+    } else if (code && code !== 'ERR_INVALID_URL') why = `请求失败：${code}`;
+    else if (phase === 'request') {
+      why = '请求没发出去（多半是 base URL 写法不对，比如漏了 https:// 或带了 user:pass@）';
+      fix = '检查 settings.json 里 env.ANTHROPIC_BASE_URL 的写法：只写 https://主机名[:端口][/路径]，凭据放在 ANTHROPIC_AUTH_TOKEN 里。改完再加 --gateway 跑一次';
+    } else {
+      why = '网关返回的不是预期的模型列表格式';
+      fix = '这个网关的 /v1/models 返回的结构不是 {"data":[{"id":…}]}，可能不是 Anthropic 兼容的模型列表接口。不影响使用，只是新版检查做不了';
+    }
+    warn(`查不到网关的模型列表（${why}），跳过新版检查`, fix);
     return;
   }
   const fine = [];
@@ -519,6 +562,7 @@ function checkTranscripts() {
   const latestSub = {};        // 家族 → { id, ts }
   const subModelTs = new Map(); // 子代理记录里出现过的每个模型 ID（小写、去 [1m]）→ 最近一次时间；第三方钉值靠它核对，famOf 对它们返回 null
   const mainWrites = [];       // { ts, w5, w1h }
+  let readFail = null;         // 读失败的文件：{ code, file（第一个失败的 basename）, n（个数） }
   const walk = function* (d) {
     let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of es) {
@@ -531,7 +575,15 @@ function checkTranscripts() {
     let st; try { st = fs.statSync(f); } catch { continue; }
     if (st.mtimeMs < since) continue;
     const isSub = /[\\/]subagents[\\/]/.test(f);
-    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    let raw;
+    try { raw = fs.readFileSync(f, 'utf8'); } catch (e) {
+      // 逐文件接住：记第一个失败文件的错误码 + 不含目录的文件名（会话 ID 或 agent-xxx.jsonl）和失败个数，继续扫其余文件；
+      // 扫完照常出各项结果，最后补一条 warn。fs 原报错的 message 里是完整路径，不往外传
+      if (!readFail) readFail = { code: (e && (e.code || e.name)) || '读取失败', file: path.basename(f), n: 1 };
+      else readFail.n += 1;
+      continue;
+    }
+    for (const line of raw.split('\n')) {
       if (line.indexOf('"usage"') === -1) continue;
       let o; try { o = JSON.parse(line); } catch { continue; }
       const m = o.message;
@@ -582,6 +634,12 @@ function checkTranscripts() {
     else if (recent.length) warn('配置了 1h 缓存，但最近主会话的缓存写入全是 5 分钟',
                                   '刚改完属正常（热加载，下一次写入起生效）；过一个会话还这样 = 网关忽略了 1h，删掉 promptCacheTtl 免得以为在省钱');
   }
+
+  // 读不了的 transcript 不挡上面的检查（那些只是少了这几个文件的数据），最后单独提醒
+  if (readFail) {
+    warn(`读 transcript 失败（${readFail.code}）：${readFail.file}${readFail.n > 1 ? ` 等 ${readFail.n} 个文件` : ''}`,
+         '检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序');
+  }
 }
 
 // ---------- 输出 ----------
@@ -598,8 +656,8 @@ function report() {
   }
   for (const r of results) {
     if (QUIET && r.level === 'ok') continue;
-    console.log(`${icon[r.level]} ${r.msg}`);
-    if (r.fix) console.log(`   → ${r.fix}`);
+    console.log(`${icon[r.level]} ${maskArn(r.msg)}`);
+    if (r.fix) console.log(`   → ${maskArn(r.fix)}`);
   }
 
   console.log();
@@ -618,7 +676,11 @@ if (QUICK) {
 } else {
   (async () => {
     await checkGatewayModels();
-    try { checkTranscripts(); } catch (e) { warn(`读 transcript 失败：${e.message}`); }
+    // 单个文件读失败已在 checkTranscripts 里逐个接住；这层兜其他意外，只报错误码，不回显 e.message（fs 报错的 message 里带完整路径，含项目目录名，等于用户的工作目录）
+    try { checkTranscripts(); } catch (e) {
+      warn(`读 transcript 失败（${e.code || e.name}）${e.transcriptFile ? `：${e.transcriptFile}` : ''}`,
+           e.transcriptFile ? '检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序' : undefined);
+    }
     report();
   })();
 }

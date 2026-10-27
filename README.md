@@ -4,7 +4,7 @@
 
 # claude-model-router
 
-[![version](https://img.shields.io/badge/version-v1.0.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v1.0.1-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933)](https://nodejs.org)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#安装)
@@ -18,7 +18,7 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 | 阶段 | 模型 | 跑在哪 |
 |---|---|---|
 | **规划** | fable | `planner-fable` 子代理 |
-| **实现 / 修复 / 文档** | sonnet | general-purpose 子代理 |
+| **实现 / 修复 / 文档** | sonnet | `general-purpose` 子代理 |
 | **查错 / 复审** | opus | `code-reviewer` 子代理 |
 
 主会话只编排、把决定交给你、核实结果，不写生产代码。规划和查错都跑在**子代理**里：它们读的文件留在子上下文，只有结论回主会话——既不污染主上下文，也不破坏主会话的 prompt cache。
@@ -40,7 +40,7 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 - **上下文可见、膨胀有刹车**：`route-check.js` 每轮输出「主会话当前上下文」；审查报告落盘后超过 300k 会附一行现成的 `/compact` 提示（只给不催）；`autoCompactWindow` 控制原生自动压缩的触发点
 - **子代理隔离上下文**：规划、审查读的一大堆文件留在子代理上下文里，只有结论回主会话——不污染主上下文，也不打爆 prompt cache（实测比切模型省约 8 倍 token）
 - **防静默跑错**：每个子代理返回后核实它实际跑的模型（不是看配置推断），跑错当场报，不用等账单
-- **用量可度量**：`usage-audit.js` 提供统一口径的成本统计（EIU、缓存命中率、子代理规模分档、缓存 TTL 模拟），所有结论可复现
+- **用量可度量**：`usage-audit.js` 提供统一口径的成本统计（EIU、缓存命中率、子代理规模分档、缓存 TTL 模拟），所有结论可复现。EIU（等效输入单位）是把一次调用的四类 token 按固定权重（输入 1、输出 5、5 分钟写缓存 1.25、读缓存 0.1、1h 写缓存 2）折成的**体量指数**，只用来比相对大小和趋势，**不是花费**：花费看 `$` 列（按各模型公开价分项算），实际花了多少以网关账单或 CC Switch 余额为准；EIU 会随用量统计拆成独立插件而废弃。口径见 [GUIDE「统一度量衡」](docs/GUIDE.md#统一度量衡usage-auditjs)
 - **配置可体检**：`doctor.js` 一条命令核查网关连通、别名钉版、孤儿键，可挂 SessionStart 钩子静默自检
 - **不存任何 key**：供应商与凭据由 Claude Code / CC Switch 管理；只有 `provider.js` 在启动时从环境变量读 key、交给那一个会话，会话结束就删临时文件
 - **能换供应商**：别名映射到 DeepSeek 等第三方模型时，流程照样按阶段派活，`route-check` / `doctor` / `usage-audit` 都认第三方模型（DeepSeek 10-26 实测）
@@ -168,7 +168,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 | `audit` |  | `node ~/.claude/plugins/model-router/usage-audit.js …` | 让 Claude 查用量时偶尔要你手动批 |
 | `doctor` |  | `node ~/.claude/plugins/model-router/doctor.js`（只放不带参数的） | 同上；`--gateway` 要读凭据，始终不放行 |
 
-为什么要放行规则：auto 模式的权限分类器会误拦这几个脚本（作者实测 route-check 300 多次里被拦 5 次），命中放行规则的命令不送分类器。每条规则只放插件自带的一个脚本，边界由脚本自己守：`route-clean.js` 只删 `.route-plan.md`、`.route-plan-*.md`、`.route-handoff-*.md` 三种文件名，并跳过被 git 跟踪的文件；其余三个只读。改 `settings.json` 前先备份（同一秒连跑也不会互相覆盖），只动 `permissions.allow`，写完核对 env 和其余配置一字不差。再跑一次少选几条，上次安装加的会被去掉；你自己原先加过的同名规则不动。这些规则 Claude 自己加不了（auto 模式下给自己放权会被拦），所以要你亲手跑。
+为什么要放行规则：auto 模式的权限分类器会误拦这几个脚本（作者实测 route-check 300 多次里被拦 5 次），命中放行规则的命令不送分类器。每条规则只放插件自带的一个脚本，边界由脚本自己守：`route-clean.js` 只删 `.route-plan.md`、`.route-plan-*.md`、`.route-handoff-*.md` 三种文件名，并跳过被 git 跟踪的文件；其余三个只读。改 `settings.json` 前先备份（同一秒连跑也不会互相覆盖），只动 `permissions.allow`，写完核对 env 和其余配置一字不差。再跑一次少选几条，上次安装加的会被去掉；你自己原先加过的同名规则不动。这些规则 Claude 自己加不了（auto 模式下给自己放权会被拦），所以要你亲手跑。**派子代理（Agent 工具）没法用放行规则免拦**：auto 模式会把 Agent 的放行规则整条忽略，查证结论见 [TECH-LIBRARY §3](docs/TECH-LIBRARY.md)。
 
 装完**重启 Claude Code**。一键安装的第 2 步已经问着帮你配了模型设置（模型别名映射 `ANTHROPIC_DEFAULT_*_MODEL` 除外，它因网关而异，脚本只提示、不替你写），不用再手动改；手动安装才要按下面「手动安装」第 3 步自己配。
 
@@ -288,7 +288,7 @@ node ~/.claude/plugins/model-router/provider.js deepseek-pro
 - **查什么**：`fable` / `opus` / `sonnet` 没映射（没写，或写成空串）时，`doctor.js` 报 ❌、`configure.js` 打一行 ⚠，写明是哪个别名、管哪个阶段、后果；`haiku`（CLI 的后台小任务用它）没映射时，`doctor.js` 报 ⚠，`configure.js` 不打 ⚠。四个都映射了，`doctor.js` 打一行 ✅
 - **修法**：在 CC Switch 的卡片里把这个别名映射到这家的模型（没有 CC Switch 就在 `settings.json` 的 env 里写 `ANTHROPIC_DEFAULT_<别名>_MODEL`）。`configure.js` 只报告、不替你写：模型 ID 跟供应商走，猜错的代价是调用全失败
 - **Bedrock / Bedrock Mantle / Vertex / Foundry 不查**：`CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_USE_MANTLE`、`CLAUDE_CODE_USE_VERTEX`、`CLAUDE_CODE_USE_FOUNDRY` 任一为真（`1`、`true`、`yes`、`on`，不分大小写；`settings.json` 的 env 里写了就以它为准，没写才看 shell 的环境变量）时整段跳过，因为 CLI 在这些平台上自己负责别名映射。OpenRouter 这类网关的 `anthropic/claude-…` 不在此列，别名没映射照样会失败，照常报
-- 输出里只有别名、键名和判定依据的模型 ID，不打印 key、地址
+- 输出里只有别名、键名和判定依据的模型 ID，不打印 key、地址。Bedrock 的模型 ID 若是 inference profile ARN，打印时 12 位账号号码打码成 `************`，比较和查表仍用原值
 
 DeepSeek 10-26 实测：
 

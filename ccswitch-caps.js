@@ -71,6 +71,8 @@ const uniq = (p) => { let q = p, i = 2; while (fs.existsSync(q)) q = `${p}-${i++
 const tryParse = (t) => { try { return { ok: true, v: JSON.parse(String(t).charCodeAt(0) === BOM.charCodeAt(0) ? String(t).slice(1) : t) }; } catch { return { ok: false }; } };
 const hostOf = (u) => { try { return new URL(String(u)).hostname.toLowerCase() || null; } catch { return null; } };
 const bareId = (v) => String(v).replace(/\[[^\]]*\]\s*$/, '').trim();
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 
 // ---------- 读一行输入（照 setup.js：同步逐字节读，不在 stdin 上留挂起的读）----------
 function readLineSync(q) {
@@ -125,7 +127,7 @@ function printNoSqlite(provs) {
     const lines = Object.entries(p.env).filter(([k, v]) => typeof v === 'string' && /_MODEL_(NAME|SUPPORTED_CAPABILITIES)$/.test(k));
     if (!lines.length) continue;
     console.error(`  供应商 ${p.name}（${p.host}）：`);
-    for (const [k, v] of lines) console.error(`    ${k} = ${v}`);
+    for (const [k, v] of lines) console.error(`    ${k} = ${maskArn(v)}`);
   }
 }
 
@@ -383,7 +385,7 @@ function undoManifest(m, o = {}) {
     if (!Sqlite) {
       console.error(`✗ 这个 Node（${process.version}）没有 node:sqlite，撤不了 CC Switch 数据库里的记录，什么都没改。`);
       console.error(`  升级 Node 后重跑；或者${KEEP_HINT}。要删的是（只删值还是下面这个的）：`);
-      for (const e of entries.filter((x) => dbOfEntry.get(x))) console.error(`    「${e.cardName}」${e.key} = ${e.value}`);
+      for (const e of entries.filter((x) => dbOfEntry.get(x))) console.error(`    「${e.cardName}」${e.key} = ${maskArn(e.value)}`);
       return { code: 1, unreachable: 0 };
     }
     for (const [p, g] of groups) {
@@ -558,7 +560,7 @@ function main() {
   // ---------- 算计划 ----------
   const targets = [], skipped = [];   // targets：{ side, cardId, cardName, label, host, prov, adds, obj, text }
   const why = (a) => (!a.third.length ? '没有第三方模型（全是 claude-* 或没有映射），不用补'
-    : !a.prov ? `不认识这个供应商，没动（主机名 ${a.host || '看不懂 base URL'}；第三方模型 ${[...new Set(a.third.map((t) => t.model))].join('、')}）`
+    : !a.prov ? `不认识这个供应商，没动（主机名 ${a.host || '看不懂 base URL'}；第三方模型 ${maskArn([...new Set(a.third.map((t) => t.model))].join('、'))}）`
       : a.noCaps && !a.adds.length ? `供应商文件里没有能力声明可补（${a.prov.name}）` : '能力声明和 _NAME 都已齐全，不用补');
   const consider = (side, cardId, cardName, label, obj, text, quietIfPlain) => {
     const a = analyze(obj.env, provs);
@@ -594,8 +596,8 @@ function main() {
     for (const t of targets) {
       say(`  ${t.side === 'db' ? `「${t.cardName}」· 数据库` : t.label}：${t.host}，按 ${t.prov.name} 的配置补`);
       for (const ad of t.adds) {
-        say(`    ${ad.alias}  ${ad.model}`);
-        for (const it of ad.items) say(`      + ${it.key} = ${it.value}`);
+        say(`    ${ad.alias}  ${maskArn(ad.model)}`);
+        for (const it of ad.items) say(`      + ${it.key} = ${maskArn(it.value)}`);
       }
     }
   } else say('没有要补的。');

@@ -58,6 +58,8 @@ const winCommandLine = (args) => ['claude', ...args.map(quoteWinArg)].join(' ');
 
 // ---------- 主模型 ----------
 const bareModel = (s) => String(s || '').replace(/\[\d+m\]$/i, '');
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 /** 带 - 的才是完整模型 ID（claude-opus-5-5、deepseek-flash）；不带的是 CLI 别名（fable/opus/sonnet/haiku/opusplan/best/default…） */
 const isFullModelId = (s) => bareModel(s).includes('-');
 const hasModelArg = (pass) => pass.some((a) => a === '--model' || a.startsWith('--model='));
@@ -180,10 +182,10 @@ function main() {
   const override = mm && pickModelOverride(mm.spec, cfg.env, pass);
   if (override) {
     env.ANTHROPIC_MODEL = override.to;
-    console.log(`${mm.from} 是 "${mm.spec}"（完整模型 ID，不是别名），${cfg.name || name} 不一定认它、认了也可能按最贵的模型计费，这个会话的主模型改用 ${override.to}（想自己指定：透传 --model <别名或 ${cfg.name || name} 的模型 ID>）`);
+    console.log(`${mm.from} 是 "${maskArn(mm.spec)}"（完整模型 ID，不是别名），${cfg.name || name} 不一定认它、认了也可能按最贵的模型计费，这个会话的主模型改用 ${maskArn(override.to)}（想自己指定：透传 --model <别名或 ${cfg.name || name} 的模型 ID>）`);
   }
 
-  const mask = (o) => JSON.stringify(o, (k, v) => (typeof v === 'string' && v === key ? `<key，来自 ${from}，长度 ${key.length}>` : v), 2);
+  const mask = (o) => JSON.stringify(o, (k, v) => (typeof v === 'string' ? (v === key ? `<key，来自 ${from}，长度 ${key.length}>` : maskArn(v)) : v), 2);
   const tmp = path.join(os.tmpdir(), `model-router-${name}-${process.pid}.json`);
   const args = ['--settings', tmp, ...pass];
 
@@ -202,7 +204,7 @@ function main() {
   const cmdline = isWin ? winCommandLine(args) : null;
 
   if (dry) {
-    console.log(`[试运行] 会写 ${tmp}：\n${mask({ env })}\n[试运行] 然后在 ${process.cwd()} 里启动：${isWin ? cmdline : `claude ${args.join(' ')}`}\n[试运行] 会话结束后删掉这个文件`);
+    console.log(`[试运行] 会写 ${tmp}：\n${mask({ env })}\n[试运行] 然后在 ${process.cwd()} 里启动：${maskArn(isWin ? cmdline : `claude ${args.join(' ')}`)}\n[试运行] 会话结束后删掉这个文件`);
     process.exit(0);
   }
 

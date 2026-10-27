@@ -11,7 +11,7 @@
  *   node route-check.js --since 90            同上，换算成「最近 90 分钟」
  *   node route-check.js                       不限时间：当前会话的全部记录
  *   node route-check.js --session <id前缀>     指定会话（默认读环境变量 CLAUDE_CODE_SESSION_ID）
- *   node route-check.js --from <时间戳> --full  没问题时也打完整表（/route 最后汇报用）
+ *   node route-check.js --from <时间戳> --full  没问题时也打完整表（人工核对时用）
  *
  * 输出：没有 ❌ 和 ⚠ 时只打一行（各角色个数 + 主会话当前上下文），有问题才打完整表——
  * 一轮 /route 要跑一二十次，每次整表进主会话上下文约 1 万 token，全是重复的 ✅。
@@ -53,6 +53,10 @@ const CALL_LIMIT_EXEMPT = new Set(['planner-fable', 'code-reviewer']);
 let settings = {};
 try { settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8')); } catch { /* 没有也能跑，只是少了版本比对 */ }
 const bareId = (s) => String(s || '').replace(/\[\d+m\]$/i, '');
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
+/** 所有输出都经这里打码 */
+const say = (s = '') => console.log(maskArn(s));
 const famOf = (id) => (String(id).match(/^claude-([a-z]+)-/) || [])[1] || null;
 // 别名 → 当前钉的模型。优先读进程环境：route-check 在会话里经 Bash 调用时，继承的就是这个会话实际生效的映射
 // （CC Switch 切卡写进 settings.json 的，或启动脚本 provider.js 用 --settings 只套给这一个会话的）；在会话外跑才退回读 settings.json
@@ -130,7 +134,7 @@ const fmtModels = (s) => s.models.length === 1 ? s.models[0]
 // ---------- 主流程 ----------
 const main = findSession();
 if (!main) {
-  console.log('找不到会话 transcript。用 --session <id前缀> 指定。');
+  say('找不到会话 transcript。用 --session <id前缀> 指定。');
   process.exit(2);
 }
 const sid = path.basename(main, '.jsonl');
@@ -245,24 +249,24 @@ if (!bad && !warnN && !FULL) {
   if (from && !roleN.planner) zero.push('规划 0 个：本轮跳过了规划就正常，否则查 --from 是否晚于规划开始');
   if (from && !roleN.reviewer) zero.push('审查 0 个：还没到审查就正常');
   const total = roleN.planner + roleN.reviewer + roleN.other;
-  console.log(`✅ route-check  ·  会话 ${sid.slice(0, 8)}${windowDesc}  ·  ` +
+  say(`✅ route-check  ·  会话 ${sid.slice(0, 8)}${windowDesc}  ·  ` +
     (total ? `子代理 ${total} 个（规划 ${roleN.planner} · 审查 ${roleN.reviewer} · 其余 ${roleN.other}）全部按设计跑，版本都是 env 当前钉的`
            : '窗口内还没有子代理，主会话模型正常') + `  ·  ${ctxLine}`);
-  if (zero.length) console.log(`   （${zero.join('；')}）`);
+  if (zero.length) say(`   （${zero.join('；')}）`);
   process.exit(0);
 }
 
-console.log(`route-check  ·  会话 ${sid}${windowDesc}\n`);
-console.log('| 首次活动 | 谁 | 应跑 | 实际模型 | effort | 调用 | 结论 |');
-console.log('|---|---|---|---|---|---|---|');
+say(`route-check  ·  会话 ${sid}${windowDesc}\n`);
+say('| 首次活动 | 谁 | 应跑 | 实际模型 | effort | 调用 | 结论 |');
+say('|---|---|---|---|---|---|---|');
 for (const r of rows) {
-  console.log(`| ${r.t} | ${r.who} | ${r.expect} | ${r.actual} | ${r.effort} | ${r.calls} | ${r.notes.length ? r.notes.join('；') : '✅'} |`);
+  say(`| ${r.t} | ${r.who} | ${r.expect} | ${r.actual} | ${r.effort} | ${r.calls} | ${r.notes.length ? r.notes.join('；') : '✅'} |`);
 }
-console.log();
-for (const t of tail) console.log(t);
-if (bad) console.log(`❌ ${bad} 处模型用错——在 /route、/plan-fable 流程里：这几个子代理的产出按「没按设计跑」处理，停下来问用户要不要重跑（route.md 停点 S7）。流程外有意指定别的模型的子代理不算`);
-if (warnN) console.log(`⚠ ${warnN} 项提醒`);
-if (!bad && !warnN && !tail.length) console.log('✅ 窗口内全部按设计跑：规划 fable、审查 opus、其余 sonnet，版本都是 env 当前钉的');
-else if (!bad) console.log('没有用错模型的子代理');
-console.log(ctxLine);
+say();
+for (const t of tail) say(t);
+if (bad) say(`❌ ${bad} 处模型用错——在 /route、/plan-fable 流程里：这几个子代理的产出按「没按设计跑」处理，停下来问用户要不要重跑（route.md 停点 S7）。流程外有意指定别的模型的子代理不算`);
+if (warnN) say(`⚠ ${warnN} 项提醒`);
+if (!bad && !warnN && !tail.length) say('✅ 窗口内全部按设计跑：规划 fable、审查 opus、其余 sonnet，版本都是 env 当前钉的');
+else if (!bad) say('没有用错模型的子代理');
+say(ctxLine);
 process.exit(bad ? 1 : 0);

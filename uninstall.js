@@ -202,9 +202,11 @@ function rewind(probe, orig, p) {
 const same = (a, b) => (typeof a !== 'object' && typeof b !== 'object' && a != null && b != null ? String(a) === String(b) : isDeepStrictEqual(a, b));
 /** 打印值：只放行看起来像模型名 / 档位的短字符串和数字；env 里除这两个键以外的值一律不显示 */
 const SHOWN_ENV = ['CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_USE_POWERSHELL_TOOL'];
+/** Bedrock 的模型 ID 可以是 inference profile 的 ARN，里面带 12 位 AWS 账号号码：只在打印前打码，比较、查表都用原值（各脚本各自内联这一行，单个脚本被拷走也能用） */
+const maskArn = (s) => String(s).replace(/(arn:aws[\w-]*:[\w-]*:[\w-]*:)\d{12}(?=:)/g, '$1************');
 const disp = (p, v) => {
   if (p[0] === 'env' && !SHOWN_ENV.includes(p[1])) return '（不显示）';
-  if (typeof v === 'string') return /^[\w.\-[\]:\/ ]{0,60}$/.test(v) && !/sk-|key|token|secret|bearer/i.test(v) ? JSON.stringify(v) : '（不是常规值，不显示）';
+  if (typeof v === 'string') return /^[\w.\-[\]:\/ ]{0,60}$/.test(v) && !/sk-|key|token|secret|bearer/i.test(v) ? JSON.stringify(maskArn(v)) : '（不是常规值，不显示）';
   if (typeof v === 'number' || typeof v === 'boolean' || v === null) return String(v);
   return '（不是常规值，不显示）';
 };
