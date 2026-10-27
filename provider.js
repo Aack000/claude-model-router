@@ -5,7 +5,7 @@
  *
  * 用法（在项目目录里）：node ~/.claude/plugins/model-router/provider.js <供应商> [--key-env 变量名] [--dry-run] [claude 的参数…]
  *   node ~/.claude/plugins/model-router/provider.js deepseek
- *   node ~/.claude/plugins/model-router/provider.js deepseek --key-env test_api_key --resume
+ *   node ~/.claude/plugins/model-router/provider.js deepseek --key-env DEEPSEEK_KEY --resume
  *   node ~/.claude/plugins/model-router/provider.js --list           列出有哪些供应商配置
  *   --dry-run   只打印会怎么启动（key 打码），不启动
  * 供应商配置在 providers/<名字>.json：env 是套给这个会话的环境变量（别名映射、能力声明…），keyEnv 是默认从哪些环境变量读 key。

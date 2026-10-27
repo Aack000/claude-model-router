@@ -21,6 +21,8 @@
  * （Windows 控制台上父进程挂着的读会跟子进程抢同一行）；逐字节读也不会多吞管道里后面的行。
  * install.js、configure.js 也是同一种读法，所以管道里一次喂完几行（如 printf '1\n\n\n'：菜单、放行规则、配置各一行）也是各读各的。
  * 串着跑时给安装这一步设环境变量 MR_SETUP_FLOW（后面还要跑哪几步，逗号分隔），install.js 据此决定结尾的「下一步」怎么写。
+ * 配置这一步在后面还要跑体检（没给 --no-doctor）时设 MR_SETUP_DOCTOR_NEXT（值是本进程号），configure.js 据此在结束语里去掉「跑一次 doctor.js 体检」。
+ * 这两个变量只在这里串着跑时才传给子进程，外面残留的都清掉。
  */
 
 const fs = require('fs');
@@ -57,7 +59,7 @@ function run(script, pass, extraEnv) {
   // cwd 换到家目录：从插件目录双击 / 右键运行时，当前目录就是插件目录，Windows 上占着的目录删不掉，卸载最后删插件目录会 EBUSY。
   // 设了 CLAUDE_CONFIG_DIR 时把解析过的绝对路径交给子进程：它可能是相对路径，换了 cwd 就会指到别处
   const env = { ...process.env, ...(process.env.CLAUDE_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: CLAUDE } : {}), ...(extraEnv || {}) };
-  if (!extraEnv || !('MR_SETUP_FLOW' in extraEnv)) delete env.MR_SETUP_FLOW;   // 只有这里串着跑时才设，别沿用外面残留的
+  for (const k of ['MR_SETUP_FLOW', 'MR_SETUP_DOCTOR_NEXT']) if (!extraEnv || !(k in extraEnv)) delete env[k];   // 只有这里串着跑时才设，别沿用外面残留的
   const r = spawnSync(process.execPath, [path.join(__dirname, script), ...pass], { stdio: 'inherit', cwd: os.homedir(), env });
   return r.status ?? 1;
 }
@@ -109,7 +111,10 @@ function runFlow({ doInstall, doConfigure, doDoctor, installArgs = [], configure
     if (dry && s.id === 'doctor') { console.log('[试运行] 体检不预演（它查的是装好之后的状态）。'); continue; }
     if (dry && s.id === 'configure' && doInstall && !fs.existsSync(MANIFEST)) { console.log('[试运行] 还没装插件（没有安装清单），配置这一步没法预演；真装之后会接着配。'); continue; }
     const later = steps.slice(i + 1).map((x) => x.id).join(',');
-    const code = run(s.script, s.args, s.id === 'install' && later ? { MR_SETUP_FLOW: later } : null);
+    // 安装那一步告诉它后面还要跑哪几步；配置那一步在后面还要跑体检时告诉它（结束语里就不再叫人「跑一次 doctor.js 体检」），值是本进程号，configure.js 核对是不是自己的父进程
+    const flowEnv = s.id === 'install' && later ? { MR_SETUP_FLOW: later }
+      : s.id === 'configure' && later.split(',').includes('doctor') ? { MR_SETUP_DOCTOR_NEXT: String(process.pid) } : null;
+    const code = run(s.script, s.args, flowEnv);
     if (s.id === 'doctor') {
       if (code === 1) console.log('\n体检发现要处理的问题，见上（不算安装失败）。');
       else if (code !== 0) console.log(`\n体检没有正常跑完（退出码 ${code}），见上（不算安装失败）。`);

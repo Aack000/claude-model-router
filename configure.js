@@ -23,6 +23,7 @@
  *   7    pwsh      env.CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"（只在 Windows 列出）  不勾
  *
  * 只报告、不写：ANTHROPIC_DEFAULT_*_MODEL 没钉时提示一行（模型 ID 跟网关走，猜错的代价是调用全失败）。
+ *   当前是非 Claude 供应商（env 里有模型 ID 不以 claude- 开头）而 fable / opus / sonnet 有没映射的，改成 ⚠ 一行说清后果（子代理会去要 Claude 的模型、直接失败）和修法；只打印键名，不打印值。
  *
  * CC Switch：
  *   · 新版（~/.cc-switch/ 里有 cc-switch.db 和 live-state.json）切卡时，env 里 ANTHROPIC_*、CLAUDE_CODE_SUBAGENT_MODEL 和顶层 model 等
@@ -48,7 +49,9 @@
  *
  * 环境变量 MR_CONFIGURE_TEST_PLATFORM、MR_CONFIGURE_TEST_TAMPER 只给测试用（用户不要设）：
  *   前者假装在别的平台（测「pwsh 只在 Windows 列出」）；后者在写完之后、核对之前偷偷改一个键（测「核对不一致就从备份恢复」）。
- * Windows / macOS / Linux 通用，只要有 Node.js；读 CC Switch 的卡片要 Node 22.5+（node:sqlite），没有就只提示、不影响配置。
+ * 环境变量 MR_SETUP_DOCTOR_NEXT 是安装入口（setup.js）串着跑、后面还要接着跑体检时设的（值 = setup.js 的进程号，对不上父进程就不算，用户不要设）：
+ *   设了就在结束语里去掉「跑一次 doctor.js 体检」这半句（flow 马上就跑了），单独跑时照旧提示。
+ * Windows / macOS / Linux 通用，只要有 Node.js；读 CC Switch 的卡片要 Node 22.13+（node:sqlite；22.5–22.12 要加 --experimental-sqlite），没有就只提示、不影响配置。
  */
 
 const fs = require('fs');
@@ -72,6 +75,27 @@ const SUB = 'CLAUDE_CODE_SUBAGENT_MODEL';
 const PWSH = 'CLAUDE_CODE_USE_POWERSHELL_TOOL';
 const EFFORT = [['sonnet', 'high'], ['fable', 'xhigh'], ['opus', 'xhigh'], ['haiku', 'low']];
 const PINNED = ['FABLE', 'OPUS', 'SONNET', 'HAIKU'];
+const ROLE = { FABLE: '规划', OPUS: '审查', SONNET: '实现' };   // /route 里这几个别名各管哪个阶段（haiku 是 CLI 自己的后台小任务用）
+const CLI_ALIASES = ['sonnet', 'opus', 'haiku', 'fable', 'opusplan', 'best', 'default'];   // ANTHROPIC_MODEL 可以直接写别名（opus、sonnet[1m]…），别名不是第三方信号
+/**
+ * 当前是不是非 Claude 供应商：ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL、ANTHROPIC_MODEL 里有一个值（去掉 [1m] 之类后缀）不以 claude- 开头。
+ * 返回这些键的名字（不带值，输出里不打印 env 的值）；空数组 = 不是（全是 claude-*，或一个都没钉：中转 Claude 的网关没钉别名也能用内置 ID）。
+ * Bedrock / Bedrock Mantle / Vertex / Foundry 一律不算：这四个平台的模型 ID（us.anthropic.claude-…、anthropic.claude-opus-4-7、ARN）不以 claude- 开头，但 CLI 在这些平台上自己负责别名映射，别名没映射不会失败
+ * （ARN 里还有 AWS 账号号码，更不能打印）。doctor.js 里有一份一模一样的判定（thirdPartyPins 和 cloudOn），改要两边一起改
+ */
+const pinOf = (env, k) => (typeof env[k] === 'string' ? env[k].replace(/\[\w+\]\s*$/, '').trim() : '');   // 钉的模型 ID（去掉 [1m] 后缀）；没有 / 空串 = 没钉
+// CLI 的写法：1 / true / yes / on，不分大小写（settings.json 里写成 JSON 的 true / 1 也算：CLI 把它们转成字符串再判）。settings 的 env 里有这个键就以它为准（CLI 启动时它盖过外面 shell 里的同名变量），没有才看 shell 里的
+const truthy = (v) => (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') && ['1', 'true', 'yes', 'on'].includes(String(v).trim().toLowerCase());
+const cloudPlatform = (env) => ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']
+  .some((k) => truthy(has(env, k) ? env[k] : process.env[k]));
+function thirdPartyKeys(env) {
+  if (cloudPlatform(env)) return [];
+  return [...PINNED.map((a) => `ANTHROPIC_DEFAULT_${a}_MODEL`), 'ANTHROPIC_MODEL']
+    .filter((k) => { const id = pinOf(env, k); return id && !/^claude-/i.test(id) && !(k === 'ANTHROPIC_MODEL' && CLI_ALIASES.includes(id.toLowerCase())); });
+}
+// 安装入口（setup.js）串着跑、后面还要接着跑体检时，给配置这一步设 MR_SETUP_DOCTOR_NEXT = 它自己的进程号；值对得上父进程才算，
+// 外面 shell 里残留的同名变量对不上，单独跑 configure.js 时不会被当成串着跑
+const DOCTOR_NEXT = process.env.MR_SETUP_DOCTOR_NEXT === String(process.ppid);
 /** 项目表：顺序就是列表里的编号；def = 默认勾不勾（只对「有活可干」的项有意义） */
 const ITEMS = [
   { id: 'subagent', def: true },
@@ -352,15 +376,20 @@ function main() {
   });
   console.log('      [x] 默认做　[ ] 默认不做（个人选择，按自己的网关定）　[-] 没有要做的（已配 / 保留 / 动不了）');
 
-  // 只报告：ANTHROPIC_DEFAULT_*_MODEL 没钉
+  // 只报告：ANTHROPIC_DEFAULT_*_MODEL 没钉。当前是非 Claude 供应商、而 fable / opus / sonnet 里有没映射的：这是会直接失败的情况，说成 ⚠（同一件事不再另说一行 ℹ）
   const env0 = isObj(j.env) ? j.env : {};
-  const unpinned = PINNED.filter((a) => !has(env0, `ANTHROPIC_DEFAULT_${a}_MODEL`));
-  if (unpinned.length) console.log(`\nℹ ANTHROPIC_DEFAULT_{${unpinned.join(',')}}_MODEL 没钉：别名会用 CLI 内置的默认版本。模型 ID 跟网关走，这里不替你写；用 CC Switch 卡片或手动配（docs/GUIDE.md）。`);
+  const unpinned = PINNED.filter((a) => !pinOf(env0, `ANTHROPIC_DEFAULT_${a}_MODEL`));   // 空串也算没钉（CLI 当它没设），和 doctor.js 一致
+  const third = thirdPartyKeys(env0), core = unpinned.filter((a) => a !== 'HAIKU');
+  if (third.length && core.length) {
+    const named = third.filter((k) => k !== 'ANTHROPIC_MODEL').map((k) => k.replace(/^ANTHROPIC_DEFAULT_|_MODEL$/g, ''));   // 判成非 Claude 的依据，只写键名
+    const basis = [...(named.length ? [`ANTHROPIC_DEFAULT_{${named.join(',')}}_MODEL`] : []), ...(third.includes('ANTHROPIC_MODEL') ? ['ANTHROPIC_MODEL'] : [])].join('、');
+    console.log(`\n⚠ ANTHROPIC_DEFAULT_{${unpinned.join(',')}}_MODEL 没映射，而当前供应商的模型不是 Claude（看 ${basis}）：用 ${core.map((a) => `${a.toLowerCase()}（${ROLE[a]}）`).join('、')}的子代理会去要 Claude 的模型、直接失败。请在 CC Switch 的卡片里把这几个变量映射到这家的模型；这里只报告、不替你写（模型 ID 跟供应商走，猜错的代价是调用全失败）。`);
+  } else if (unpinned.length) console.log(`\nℹ ANTHROPIC_DEFAULT_{${unpinned.join(',')}}_MODEL 没钉：别名会用 CLI 内置的默认版本。模型 ID 跟网关走，这里不替你写；用 CC Switch 卡片或手动配（docs/GUIDE.md）。`);
 
   // Q1：只读扫一遍 CC Switch 的卡片，列出还带着 CLAUDE_CODE_SUBAGENT_MODEL 的卡片名
   if (ccDb) {
     const r = cardsWithSubagent();
-    if (r.status === 'nosqlite') console.log(`\nℹ 这个 Node（${process.version}）没有 node:sqlite（要 22.5 以上），查不了 CC Switch 的卡片里有没有带 ${SUB}；自己在 CC Switch 的卡片编辑框里看一眼，有就删。`);
+    if (r.status === 'nosqlite') console.log(`\nℹ 这个 Node（${process.version}）没有 node:sqlite（要 22.13 以上），查不了 CC Switch 的卡片里有没有带 ${SUB}；自己在 CC Switch 的卡片编辑框里看一眼，有就删。`);
     else if (r.status === 'error') console.log(`\nℹ 读 CC Switch 的数据库失败（${r.msg}），没法查卡片里有没有带 ${SUB}；自己在 CC Switch 里看一眼。`);
     else {
       if (!r.cards.length) console.log(`\nCC Switch 的 ${r.total} 张 claude 卡片里，没有带 ${SUB} 的。`);
@@ -476,7 +505,7 @@ function main() {
   m.backups = [...(Array.isArray(m.backups) ? m.backups : []), ...(bak ? [bak] : [])];
   try { fs.writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + '\n'); } catch { abort('安装清单写不进去（卸载就撤不回这些改动）'); }
 
-  console.log(`\n配好了。清单里记了 ${added} 条${bak ? `；备份 ${path.basename(bak)}` : ''}。重启 Claude Code 生效；跑一次 doctor.js 体检。撤回：卸载插件时会按清单撤回。`);
+  console.log(`\n配好了。清单里记了 ${added} 条${bak ? `；备份 ${path.basename(bak)}` : ''}。重启 Claude Code 生效${DOCTOR_NEXT ? '' : '；跑一次 doctor.js 体检'}。撤回：卸载插件时会按清单撤回。`);
 }
 
 main();

@@ -37,7 +37,7 @@
  *         （切走时 CC Switch 已把本机文件回填进去；本机文件现在是别的卡片的配置，不碰）
  *       只有 'db'（补的时候不是当前卡片）：现在是当前卡片就两边都删（切过来时 CC Switch 把副本写进了本机文件），否则只删数据库
  *     值被改过的记录报一次就从清单去掉；只有「撤不了」（找不到库、没有 node:sqlite 等）的才留着
- * 要 Node 22.5+（node:sqlite）；没有就打印手动补的步骤。需要先装好插件（安装清单存在）。
+ * 要 Node 22.13+（node:sqlite；22.5–22.12 要加 --experimental-sqlite）；没有就打印手动补的步骤。需要先装好插件（安装清单存在）。
  *
  * 这个文件也能被 require：导出 undoManifest（--undo 和 uninstall.js 共用）、ccRunning、analyze。
  */
@@ -119,7 +119,7 @@ function loadSqlite() {
 const KEEP_HINT = '手动在 CC Switch 卡片里删掉这几行后，加 --keep-ccswitch-caps 再卸载';
 /** 没有 node:sqlite：什么都没改，打印手动补的步骤（只有能力值和 _NAME），调用方 exit 1 */
 function printNoSqlite(provs) {
-  console.error(`✗ 这个 Node（${process.version}）没有 node:sqlite（要 22.5 以上；22.5–22.12 还要加 --experimental-sqlite），读不了 CC Switch 的数据库，什么都没改。`);
+  console.error(`✗ 这个 Node（${process.version}）没有 node:sqlite（要 22.13 以上），读不了 CC Switch 的数据库，什么都没改。`);
   console.error('  升级 Node 后重跑这一步；或者可以手动在 CC Switch 的卡片里加这几行（卡片的编辑框里，env 里加，保存；只给映射到对应供应商的别名加）：');
   for (const p of provs) {
     const lines = Object.entries(p.env).filter(([k, v]) => typeof v === 'string' && /_MODEL_(NAME|SUPPORTED_CAPABILITIES)$/.test(k));

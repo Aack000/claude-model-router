@@ -211,9 +211,11 @@ if (r) { ... }                                               // ← r = agent fr
 
 ## 安装
 
-### 1. settings.json（插件管不了，必须手动改）
+### 1. settings.json（安装器会问着帮你配，手动配见下）
 
-改 `~/.claude/settings.json`：
+**用一键安装的话不用自己改**：安装入口（`setup`）菜单 1 / `setup install` 装完插件会接着跑 `configure.js`，把下面这些项逐项列出来、问着帮你配，再跑一次体检；只想重做这一步用菜单 5（`setup configure`）。哪些默认做、哪些默认不做、已经配过的怎么处理，见下面「4. 安装 flow 与参数」。手动安装（没有安装清单）时 `configure.js` 用不了，才需要照下面自己改。
+
+手动改本机用户级 `settings.json`（`~/.claude/settings.json`；设了 `CLAUDE_CONFIG_DIR` 就是那个目录下的，见「5. 配置目录」）：
 
 ```jsonc
 {
@@ -247,7 +249,7 @@ if (r) { ... }                                               // ← r = agent fr
 }
 ```
 
-以上两处（`autoCompactWindow`、试用中的 Sonnet `xhigh`）用 CC Switch 的话，要同步进当前供应商卡片，否则切换供应商会被覆盖。
+用 CC Switch 的话：新版切卡只换归卡片的键（`model`、`ANTHROPIC_*`、`CLAUDE_CODE_SUBAGENT_MODEL` 等），上面其余的写本机一次就够、切卡不丢；旧版（`~/.cc-switch/` 里没有 `live-state.json`）切卡会整份覆盖本机文件，要同步进每张卡片。详见「6. CC Switch：哪些键切卡会变」。
 
 别名会经 `ANTHROPIC_DEFAULT_<家族>_MODEL` 解析成具体版本（保留 `[1M]` 后缀，**1M 上下文不会丢**）。`modelSettings` 的键也写别名——`/effort` 会写入完整 ID 的键，换代后旧键变孤儿，doctor 会报。
 
@@ -280,6 +282,141 @@ if (r) { ... }                                               // ← r = agent fr
 ```
 
 路径要用**当前用户的真实 home**。
+
+### 4. 安装 flow 与参数（一键安装）
+
+入口 `setup`（`setup.cmd` / `setup.ps1` / `setup.sh` / `setup.command`，最终都跑 `setup.js`）。不带参数出菜单：
+
+| 菜单 | 做什么 |
+|---|---|
+| 1 | 安装 / 升级：装插件 → 配模型设置 → 体检，串着跑 |
+| 2 | 卸载（要输入 `y` 确认；菜单传不了参数，要加参数用命令行 `setup uninstall …`，见「7. 卸载」） |
+| 3 | 试运行：只跑 `install.js --dry-run`，列出安装会改什么 |
+| 4 | 给 CC Switch 卡片补能力声明（第三方模型，要先装好插件；见 README「换供应商」）。不在 flow 里，单独选 |
+| 5 | 只配模型设置并体检（`configure.js` → `doctor.js`），要先装好插件 |
+| q | 退出 |
+
+带参数就直接执行、不出菜单：
+
+```text
+setup install   [--rules=…] [--items=…] [--yes] [--no-configure] [--no-doctor] [--dry-run]
+setup configure [--items=…] [--yes] [--no-doctor] [--dry-run]            （= 菜单 5）
+setup uninstall [--dry-run] [--keep-ccswitch-caps] [--keep-card-settings]  （参数原样交给 uninstall.js）
+setup caps      […]                                                      （参数原样交给 ccswitch-caps.js）
+```
+
+`--pause` 是双击启动器自己加的（跑完等回车再关窗口），不用手动给。
+
+**flow 的规则**
+
+- 三步：① `install.js` → ② `configure.js` → ③ `doctor.js`（体检）。前一步退出码不是 0 就停下，打印「停在第 N 步（名字）」和退出码，后面的不跑。第 2 步失败时会再提示安装已经做完，修好后用菜单 5 接着配。
+- 体检是例外：退出码 1 = 发现了要处理的问题，只打印「体检发现要处理的问题，见上（不算安装失败）」；别的非 0（没正常跑完）也只打印提示。刚装完或在沙盒里它常有要处理的事，那是提醒，不是安装坏了。
+- 参数分给各步：`--rules` → `install.js`；`--items`、`--yes` → `configure.js`；`--dry-run` → 安装和配置两步（体检不预演；还没装过插件、没有安装清单时配置这一步也没法预演，会提示「真装之后会接着配」）；`--no-configure` 跳过第 2 步（体检照跑）；`--no-doctor` 不体检。
+- 不认识的参数、`--rules` / `--items` 没给值，立刻退出（exit 2），不会先装一半。PowerShell 调 `.ps1` 时会把 `--rules=a,b` 拆成「`--rules=a`」「`b`」两个参数，跟在后面的裸词会接回去。
+- 同一个 stdin 上菜单、放行规则、配置各读各的一行：`printf '1\n\n\n' | ./setup.sh` 能走完整个 flow（每一步回车按默认）。
+- 环境变量 `MR_SETUP_FLOW`：串着跑时 `setup` 给安装这一步设的，值是后面还要跑哪几步（逗号分隔，如 `configure,doctor`）；`install.js` 据此决定结尾的「下一步」怎么写——后面有配置这一步就不再提示手动配；单独跑 `install.js`（或用 `--no-configure` 跳过了）才提示「接着跑 `configure.js`（或安装入口菜单 5）」。这是内部约定，不用自己设；外面残留的会被清掉。
+
+**`configure.js` 单独用**
+
+```bash
+node ~/.claude/plugins/model-router/configure.js [--dry-run] [--yes] [--items=<名字，逗号分隔；也可以用编号>|all|none]
+```
+
+- `--dry-run` 只打印会做什么，不改任何文件；`--yes` 不问，按默认勾的来；`--items=…` 只做这几项（如 `--items=effort,fallback`），`all` = 全做，`none` = 都不做，给了就不再逐项问。也可以用编号，编号按屏幕上列出的顺序，不同平台可能不同（`pwsh` 只在 Windows 上列出），写脚本时用名字。
+- 不给 `--items` 也不给 `--yes`：先列出每一项的状态，再问一次。回车 = 按 `[x]` 的来，输入编号 = 只要这几项，`0` = 一项都不要；输入已结束（管道、没有终端）时按默认。列表里 `[x]` 默认做，`[ ]` 默认不做，`[-]` 没有要做的（已配 / 保留 / 动不了）。
+- 要先装好插件（有安装清单）；没有就提示先装，退出 1，什么都没改。
+- 退出码：0 成功（含没有要改的、选了都不要）；1 失败（没装插件、`settings.json` 读不了、写后核对不一致）；2 参数不认识。
+
+| 编号（Windows 上的顺序） | 名字 | 做什么 | 默认 |
+|---|---|---|---|
+| 1 | `subagent` | 删 `env.CLAUDE_CODE_SUBAGENT_MODEL`（有它时）；原因见上面「会静默失效的坑」 | 做 |
+| 2 | `effort` | `modelSettings`：sonnet `high`、fable `xhigh`、opus `xhigh`、haiku `low`，只补缺的别名 | 做 |
+| 3 | `fallback` | 顶层 `effortLevel` = `"high"`（`modelSettings` 没列到的模型用它） | 做 |
+| 4 | `model` | 顶层 `model` = `"opus"`，本机没有才补 | 做 |
+| 5 | `compact` | `autoCompactWindow` = `500000` | 不做（个人选择） |
+| 6 | `cache` | `promptCacheTtl` = `"1h"` | 不做（Kimi、百炼、OpenRouter 等网关不支持 1h 缓存，按自己的网关定） |
+| 7 | `pwsh` | `env.CLAUDE_CODE_USE_POWERSHELL_TOOL` = `"1"` | 不做（只在 Windows 上列出） |
+
+- **已经配过的项不动**：每一项分三种状态——已配（同推荐）、已配（值不同，保留）、缺。值不同的一律不改，只在列表里标出差异（比如你自己把 sonnet 设成 `xhigh`，会写「已配（值不同，保留）…（推荐 …）」）；缺的才补。`effort` 一项里，四个别名各自判断，只补缺的那几个。唯一会删东西的是 `subagent`。
+- **`ANTHROPIC_DEFAULT_*_MODEL` 只报告、不写**：没钉就提示一行「别名会用 CLI 内置的默认版本」。模型 ID 跟网关走，安装器猜错的代价是调用全失败，所以用 CC Switch 卡片或手动配。当前供应商不是 Claude 系、而 fable / opus / sonnet 里有没映射的，这一行改成 ⚠（会直接失败，不再另说一行 ℹ；判定见「6. CC Switch」末尾的「换供应商漏映射」）；只缺 haiku 不打 ⚠。
+- **改之前备份**：`settings.json` 备份成 `settings.json.bak-model-router-<时间>`（同一秒撞名加 `-2`、`-3`），路径记进安装清单。备份后立刻比对、写回前重新读一遍：等输入期间 `settings.json` 被别的程序改了（CC Switch 切卡、你自己），按最新内容重算，不会拿旧内容覆盖。
+- **写后核对**：沿用原文件的缩进、换行（CRLF）、BOM 和末尾换行；写完重读，把本次的改动撤回后必须和写之前一字不差（env 里只允许少掉 `CLAUDE_CODE_SUBAGENT_MODEL`、多出 `CLAUDE_CODE_USE_POWERSHELL_TOOL`），不一致就从备份恢复、退出 1。
+- **输出里不出现密钥**：除上面两个键外，env 里的值一概不打印；`settings.json` 读不了时也不回显原文。
+- **记进安装清单**（`<配置目录>/plugins/model-router/.install-manifest.json` 的 `settingsChanges`），卸载按它撤回。重跑只追加新的（`path`、`op`、值都一样的不重复记）：
+
+```json
+{ "path": ["modelSettings", "sonnet", "effortLevel"], "op": "add", "value": "high" }
+{ "path": ["env", "CLAUDE_CODE_SUBAGENT_MODEL"], "op": "remove", "old": "<删之前的原值>" }
+```
+
+  `model` 和 `env.CLAUDE_CODE_SUBAGENT_MODEL` 这两类记录归 CC Switch 的卡片管，满足条件时还会带上 `"card": { "id": …, "name": … }`（当时的当前卡片），条件见「6. CC Switch」。
+
+### 5. 配置目录（`CLAUDE_CONFIG_DIR`）
+
+- **认哪个目录**：`install.js`、`configure.js`、`uninstall.js`、`setup.js`、`ccswitch-caps.js`、`provider.js`、`doctor.js`、`route-check.js`、`usage-audit.js` 都和 Claude Code 一样认环境变量 `CLAUDE_CONFIG_DIR`，没设就是 `~/.claude`。相对路径先解析成绝对路径；`setup` 解析后把绝对路径交给各步，所以换了当前目录也不会指到别处。菜单顶上那一行会写出实际装到哪。要和装的时候用同一个设置。
+- **命令里的路径怎么写**：`commands/route.md` 里调用脚本的路径和放行规则必须一字不差，规则才匹配得上。配置目录是默认的 `~/.claude`（Windows、macOS 上不分大小写）时写 `~/.claude/plugins/model-router/<脚本>`，已装用户的规则和命令文件不变；在别处时写成插件目录的绝对路径（正斜杠；含空格等字符时整条脚本路径加双引号），部署 `commands/*.md`、`agents/*.md` 时把正文里的 `~/.claude/plugins/model-router/…` 换成这个写法，清单里记的 sha 是换过之后的。目录名里带引号、反引号、`$`、反斜杠字符的会被拒绝（命令里没法安全引用，什么都没改）。
+- **清单记着装在哪**：`.install-manifest.json` 记 `configDir`（装在哪个配置目录）和 `pathToken`（脚本路径的写法）。换了位置重装，上次按旧写法加的放行规则按 `rulesAdded` 去掉。
+- **配置目录整个复制或挪了位置**（做第二套配置、改名、搬家）：清单里的文件记的是绝对路径，照着删会删到原来那个目录。所以重装和卸载读到旧清单时，先按记下的 `configDir` 把路径换到当前配置目录下；旧清单没有 `configDir` 的，从清单里的 plugin 记录（`…/plugins/model-router/…`）或命令、子代理记录（上两级目录）反推；换不过来的留原样。删之前还要再判断一次，不在当前配置目录里的一律不删，打印「清单记录的 … 不在当前配置目录 … 里，没动」。结果：在复制出来的副本里装、重装或卸载，原配置目录里的文件不会被删；从挪过去的插件目录里重装，也能认出是上次装好的那份（副本模式），不会掉出清单。
+- **CC Switch 只管默认的 `~/.claude`**：配置目录不是默认的时，`configure.js` 不记卡片、`uninstall.js` 不比对卡片（路径比较 Windows、macOS 上不分大小写，Linux 区分），有 CC Switch 时 `configure.js` 还会提醒一句「它默认写的是 `~/.claude`」。
+
+### 6. CC Switch：哪些键切卡会变
+
+CC Switch 新版（`~/.cc-switch/` 里有 `cc-switch.db` 和 `live-state.json`）用「投影」写 live 的 `settings.json`，不是整份替换。下面的分类依据 CC Switch 源码（`farion1231/cc-switch`），**没有在真实切卡里逐项实测**：
+
+| 归谁 | 键 | 切卡时 |
+|---|---|---|
+| 归卡片（关键字段） | env 里所有 `ANTHROPIC_*`（含 `ANTHROPIC_DEFAULT_*_MODEL`、`_SUPPORTED_CAPABILITIES`）、`AWS_*`、`CLAUDE_CODE_SUBAGENT_MODEL`、OAuth 相关；顶层 `model`、`modelOverrides`、`apiKeyHelper`、`fallbackModel` 等 | 一律清空，再写新卡片自己的 |
+| 归卡片（独有字段） | `CLAUDE_CODE_AUTO_MODE_SERVER`、env 版的 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_CODE_MAX_CONTEXT_TOKENS` 等兼容开关 | 先删上一张卡片带进来、且值没被改过的，再写新卡片的 |
+| 归你 | 其余所有键：`modelSettings`、`effortLevel`、顶层 `autoCompactWindow`（注意和上面 env 版的同名不同位置）、`promptCacheTtl`、`permissions`、`hooks`、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等 | 原样保留 |
+
+存回卡片时（切走时），只换关键字段和独有字段，卡片行里其余内容原样保留。由此：
+
+- `modelSettings`、`effortLevel`、`autoCompactWindow`、`promptCacheTtl`、PowerShell 开关、安装器加的 `permissions.allow` ——**写本机 `settings.json` 一次就够，切卡不丢**。
+- `model`、`ANTHROPIC_DEFAULT_*_MODEL`、`CLAUDE_CODE_SUBAGENT_MODEL` ——**归卡片**：写进本机文件 = 写进当前卡片（切走时存回），别的卡片各有各的。某张卡片自己带着 `CLAUDE_CODE_SUBAGENT_MODEL`，切过去它就回来了、`code-reviewer` 又被静默降级。`configure.js` 因此在有 CC Switch 数据库时只读打开它（不写、不开写事务），列出 env 里带着这个键的卡片名（只打印卡片名），请你在 CC Switch 里删；要 Node 22.13+（`node:sqlite`），版本不够就只提示（18+ 也能装，只是读不了 CC Switch 卡片）。换到没配 `model` 的卡片（比如 DeepSeek），主模型回到 CLI 默认，这是 CC Switch 的设计。
+- **旧版**（有 `cc-switch.db`、没有 `live-state.json`）切卡会整份覆盖本机 `settings.json`，`configure.js` 配的会被冲掉。`configure.js` 开头会打警告：要么升级 CC Switch，要么把这些设置同步进每张卡片。安装器只警告，不做卡片同步。
+- **记下当时的卡片**：`configure.js` 改 `model` 或 `CLAUDE_CODE_SUBAGENT_MODEL` 时，如果有 `cc-switch.db`、配置目录是默认的 `~/.claude`，会只读查一次当前卡片（只取 id 和名字），记进这两类清单记录的 `card` 里；查不出（没有 `node:sqlite`、读库失败）就不记，并提醒「卸载前请先切回现在这张卡片」。卸载时用它，见下一节。
+
+目前只实测适配了 DeepSeek，其他供应商还没适配；`/route` 按 CC Switch 当前卡片的模型映射走。
+
+**换供应商漏映射（`doctor.js` ❌ / ⚠，`configure.js` ⚠）**
+
+`/route` 各阶段只写别名（规划 `fable`、审查 `opus`、实现 `sonnet`），跟着当前卡片的映射走。切到非 Claude 系的卡片、而这几个别名里有没映射的：CLI 会拿内置的 Claude 模型 ID 去请求，这家没有这个模型，用这个别名的子代理直接失败，事前没有任何提示。切卡本身就会把 `ANTHROPIC_DEFAULT_*_MODEL` 整体换成新卡片自己的（见上面的表），新卡片漏写哪个，哪个别名就没映射。所以体检和配置两边都核一遍：
+
+- **判定**：本机 `settings.json` 的 env 里，`ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL`、`ANTHROPIC_MODEL` 有一个值（去掉 `[1m]` 之类的后缀）不以 `claude-` 开头，就算「不是 Claude 系」。`ANTHROPIC_MODEL` 写别名（`opus`、`sonnet[1m]`、`opusplan` 等）不算；全是 `claude-*`（中转 Claude 的网关没钉别名也能用内置 ID）或一个都没钉，不查。`doctor.js` 和 `configure.js` 各有一份一模一样的判定
+- **`doctor.js`**（快速、完整模式都查，所以挂在 SessionStart 钩子上的 `--quick --quiet` 换完卡片下次开会话就会报）：`fable` / `opus` / `sonnet` 没映射（没写，或写成空串）各报一条 ❌，写明哪个别名、管哪个阶段（规划 / 审查 / 实现）、判成非 Claude 的依据（哪些键钉的是哪个模型 ID）和后果，下面一行是修法；`haiku` 没映射报 ⚠（CLI 的后台小任务用它，会去要 Claude 的模型）；四个都映射了打一行 ✅。有 ❌ 时退出码 1，只有 ⚠ 不影响
+- **`configure.js`**：同样的判定，打一行 ⚠，点名没映射的别名和阶段，依据只写键名、不写值。只报告、不写：模型 ID 跟供应商走，猜错的代价是调用全失败
+- **修法**：在 CC Switch 的卡片里把这个别名映射到这家的模型；没有 CC Switch 就在 `settings.json` 的 env 里写 `ANTHROPIC_DEFAULT_<别名>_MODEL`
+- **Bedrock / Bedrock Mantle / Vertex / Foundry 不查**：env 里 `CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_USE_MANTLE`、`CLAUDE_CODE_USE_VERTEX`、`CLAUDE_CODE_USE_FOUNDRY` 任一为真（`1`、`true`、`yes`、`on`，不分大小写；JSON 里写成 `true` 或 `1` 也算）时整段跳过。这四个平台的模型 ID（`us.anthropic.claude-…`、`anthropic.claude-opus-4-7`、ARN）不以 `claude-` 开头，但 CLI 在这些平台上自己负责别名映射，别名没映射不会失败。`settings.json` 的 env 里写了这个变量就以它为准（写 `0` 就照常判），没写才看 shell 的环境变量。不能改成「ID 里含 `claude-` 就算 Claude」：OpenRouter 的 `anthropic/claude-…` 别名没映射照样失败，照常报
+- 这段检查不打印 token、地址；`doctor.js` 的判定依据里会出现钉的模型 ID，`configure.js` 只出现键名
+
+### 7. 卸载
+
+```bash
+node ~/.claude/plugins/model-router/uninstall.js [--dry-run] [--keep-ccswitch-caps] [--keep-card-settings]
+```
+
+也可以在安装入口菜单选 2，或 `setup uninstall …`。依据是插件目录里的 `.install-manifest.json`，没有它就说明不是 `install.js` 装的，什么都不做（手动安装的回滚见「回滚」一节）。配置目录要和装的时候用同一个（`CLAUDE_CONFIG_DIR`，见「5」）。
+
+它做的事，按顺序：
+
+1. **卡片预检**（动任何东西之前）：清单里 `model`、`CLAUDE_CODE_SUBAGENT_MODEL` 的记录带着配置时的卡片。CC Switch 现在的当前卡片不是那张，或查不出是哪张（没有 `node:sqlite`、读库失败），现在撤回会落到另一张卡片上，切走时被 CC Switch 存进那张卡片。因为卸载最后会删清单，只跳过这两条再删清单就再也撤不回，所以**整个卸载中止**：退出码 1，什么都没动（`--dry-run` 只提示「正式卸载会在这里中止」）。两条路：在 CC Switch 切回那张卡片再卸载；或加 `--keep-card-settings`。CC Switch 已经没有了（数据库不在）就照常撤回；配置目录不是默认的 `~/.claude` 时不做这一步。
+2. **撤回 CC Switch 能力声明**（清单里有 `ccswitchCaps` 时，菜单 4 补的）：要先退出 CC Switch，检测不了它在不在运行时会问一次。撤不了的（没有 `node:sqlite`、数据库挪了位置等）记录留在清单里，整个卸载中止、什么都不动。出口：把数据库放回原处再卸载，或加 `--keep-ccswitch-caps`（补的留在卡片里，要去掉就在 CC Switch 的卡片里手动删）。
+3. **删文件**：只删 `install.js` 放进配置目录的命令、子代理、插件目录文件，且装完后没被改过的（改过的不删，只提示）；不在当前配置目录里的一律不删。仓库本身就克隆在插件目录时不删仓库。
+4. **`settings.json`**：去掉安装器加的放行规则（你自己原先加的不动），并按清单的 `settingsChanges` 撤回 `configure.js` 配过的键——和放行规则同一次读、同一份备份（`settings.json.bak-model-router-uninstall-<时间>`）、同一次写，写完把动过的键倒回去核对，其余内容一字不差：
+   - 加的键（`op: add`）：现在的值仍是配置时的才去掉，改过的留着、只提示；删空了的父对象（如 `modelSettings` 里的 `sonnet: {}`）不删，留空对象；
+   - 删的键（`op: remove`，即 `CLAUDE_CODE_SUBAGENT_MODEL`）：恢复成装之前的原值，但现在已经有了这个键（不管值是什么）就不动。恢复时会提醒「它会让子代理的 model 设置失效，体检会报」——这是把卸载做成「回到装之前的样子」，不想要它就自己删掉这一行；
+   - env 里除这两个键外的值一律不打印。
+5. 安装时做的备份 `*.bak-*` 一律不动，列出路径，要不要恢复由你定。
+
+`--keep-card-settings`：`model`、`CLAUDE_CODE_SUBAGENT_MODEL` 这两项**一律不撤**（不管撤不撤得了，包括当前卡片就是记录的那张时），其余照常卸载。`--keep-ccswitch-caps`：跳过第 2 步。两个参数都可以和 `--dry-run` 一起给。
+
+**停下时给的现成命令**：双击菜单传不了参数，所以卸载在上面两种情况（卡片预检、能力声明撤不了）停下，以及 CC Switch 正在运行时，会打印一行可以直接照抄的命令：
+
+```text
+命令行这样跑（双击菜单传不了参数）：node "<uninstall.js 的绝对路径>" --keep-card-settings
+```
+
+这次已经带的参数（含 `--dry-run`）原样保留，再加上要加的那个，去重——所以两种情况同时存在时，照着抄第二次会带上两个参数，不会来回绕。设了 `CLAUDE_CONFIG_DIR` 的话，会先写出「先把 `CLAUDE_CONFIG_DIR` 设成 <解析后的绝对路径>，再跑 …」（写绝对路径，不写 shell 语法）。CC Switch 正在运行时，提示退出它之后用同样的参数再卸载一次。
 
 ---
 
@@ -467,6 +604,8 @@ doctor 会在 CLI 已知某族更新代号、而你的 env 还钉在旧代号时
 
 ## 回滚
 
+一键安装装的，优先用安装器卸载（见「安装 → 7. 卸载」）：它按安装清单撤回，包括 `configure.js` 配过的键。下面是手动回滚（手动安装、没有安装清单时用）：
+
 改动是 `settings.json` + 四个流程文件（插件目录里的工具不影响 CLI 行为，可留可删）：
 
 ```bash
@@ -487,7 +626,7 @@ rm ~/.claude/commands/route.md \
 - **规划走子代理的代价**：子代理看不到主会话上下文，背景要靠任务描述带过去；交互是往返式而非实时对话；走不了正式的 plan 流程和 `ExitPlanMode`。换来的是真正跑在 Fable 上 + 约 1/8 的 token 开销。
 - **`modelSettings` 的键**走别名规范化，写 `sonnet` / `opus` / `fable` / `haiku` 即可，不必写完整 model ID。
 - **command frontmatter 的 `agent:` 字段**（解析结构里确认存在）也许能直接声明用哪个 agent 跑，未验证。当前靠正文指示，是确定可行的路径。
-- **只支持 Claude 系模型**。跨供应商 / 跨宿主（Codex）的调研结论在 [`TECH-LIBRARY.md`](TECH-LIBRARY.md)，09-30 搁置。
+- **模型：除 Claude 系外，目前只实测适配了 DeepSeek**，其他供应商还没适配；`/route` 按 CC Switch 当前卡片的模型映射走（做法见 README「换供应商」）。跨宿主（Codex）的调研结论在 [`TECH-LIBRARY.md`](TECH-LIBRARY.md)，09-30 搁置。
 
 ---
 

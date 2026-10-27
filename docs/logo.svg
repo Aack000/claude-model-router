@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="logo-title">
+  <title id="logo-title">model-router：一条线分成三条，分别对应规划、执行、查错</title>
+  <!-- 干线：中性灰，深色、浅色背景下都能看清 -->
+  <path d="M16 64 H44" fill="none" stroke="#6B7280" stroke-width="8" stroke-linecap="round"/>
+  <!-- 上支：Fable 规划（紫） -->
+  <path d="M44 64 C76 64 76 26 106 26" fill="none" stroke="#A855F7" stroke-width="8" stroke-linecap="round"/>
+  <!-- 下支：Opus 查错（橙） -->
+  <path d="M44 64 C76 64 76 102 106 102" fill="none" stroke="#EA580C" stroke-width="8" stroke-linecap="round"/>
+  <!-- 中支：Sonnet 执行（青） -->
+  <path d="M44 64 H106" fill="none" stroke="#0891B2" stroke-width="8" stroke-linecap="round"/>
+  <!-- 起点与分岔点 -->
+  <circle cx="16" cy="64" r="9" fill="#6B7280"/>
+  <circle cx="44" cy="64" r="7" fill="#6B7280"/>
+  <!-- 三个终点 -->
+  <circle cx="108" cy="26" r="10" fill="#A855F7"/>
+  <circle cx="108" cy="64" r="10" fill="#0891B2"/>
+  <circle cx="108" cy="102" r="10" fill="#EA580C"/>
+</svg>

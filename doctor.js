@@ -269,6 +269,41 @@ if (settings) {
   }
 }
 
+// 换供应商漏映射：当前供应商不是 Claude 系（env 里有模型 ID 不以 claude- 开头），而 /route 用的别名里有没映射的，
+// CLI 会拿内置的 Claude 模型 ID 去请求，那家没有这个模型，用这个别名的子代理直接失败，事前没有任何提示。
+// 中转 Claude 的网关没钉别名没事（内置 ID 本来就能用），所以只在判出「非 Claude」时才查；快速模式、完整模式都跑。
+// Bedrock / Bedrock Mantle / Vertex / Foundry 不查：这四个平台的模型 ID（us.anthropic.claude-…、anthropic.claude-opus-4-7、ARN）不以 claude- 开头，但 CLI 在这些平台上自己负责别名映射（用各平台自己的内置 ID），别名没映射不会失败
+// 判定（thirdPartyPins 和下面的 cloudOn）在 configure.js 里有一份一模一样的（thirdPartyKeys、cloudPlatform），改要两边一起改。只打印别名和模型 ID，不打印 env 里别的值（token、URL；Bedrock 的 ARN 里有账号号码，所以云平台一律不进这段）
+{
+  const env = settings && settings.env && typeof settings.env === 'object' && !Array.isArray(settings.env) ? settings.env : {};
+  const CLI_ALIASES = ['sonnet', 'opus', 'haiku', 'fable', 'opusplan', 'best', 'default'];   // ANTHROPIC_MODEL 可以直接写别名（opus、sonnet[1m]…），别名不是第三方信号
+  // CLI 的写法：1 / true / yes / on，不分大小写（settings.json 里写成 JSON 的 true / 1 也算：CLI 把它们转成字符串再判）。settings 的 env 里有这个键就以它为准（CLI 启动时它盖过外面 shell 里的同名变量），没有才看 shell 里的
+  const truthy = (v) => (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') && ['1', 'true', 'yes', 'on'].includes(String(v).trim().toLowerCase());
+  const cloudOn = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']
+    .some((k) => truthy(Object.prototype.hasOwnProperty.call(env, k) ? env[k] : process.env[k]));
+  const pinOf = (k) => (typeof env[k] === 'string' ? env[k].replace(/\[\w+\]\s*$/, '').trim() : '');
+  const thirdPartyPins = () => ['ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_MODEL']
+    .map((k) => [k, pinOf(k)])
+    .filter(([k, id]) => id && !/^claude-/i.test(id) && !(k === 'ANTHROPIC_MODEL' && CLI_ALIASES.includes(id.toLowerCase())));
+  const third = cloudOn ? [] : thirdPartyPins();
+  if (third.length) {
+    const byId = Object.create(null);   // 依据：哪些别名（或主模型）钉到了哪个非 Claude 的模型 ID，同一个 ID 的并成一组
+    for (const [k, id] of third) (byId[id] ||= []).push(k === 'ANTHROPIC_MODEL' ? '主模型' : k.replace(/^ANTHROPIC_DEFAULT_|_MODEL$/g, '').toLowerCase());
+    const basis = Object.entries(byId).map(([id, ks]) => `${ks.join('/')} 钉的是 ${id}`).join('，');
+    const ROLE = { fable: '规划', opus: '审查', sonnet: '实现' };
+    let missed = 0;
+    for (const a of ['fable', 'opus', 'sonnet', 'haiku']) {
+      const key = `ANTHROPIC_DEFAULT_${a.toUpperCase()}_MODEL`;
+      if (pinOf(key)) continue;
+      missed++;
+      const fix = `在 CC Switch 的卡片里把 ${key} 映射到这家的模型（没有 CC Switch 就在 settings.json 的 env 里写）`;
+      if (a === 'haiku') warn(`${a} 没映射：当前供应商的模型不是 Claude（${basis}），CLI 的后台小任务用 ${a}，会去要 Claude 的模型`, fix);
+      else err(`${a} 没映射：当前供应商的模型不是 Claude（${basis}），用 ${a} 的子代理（${ROLE[a]}）会去要 Claude 的模型、直接失败`, fix);
+    }
+    if (!missed) ok(`换供应商检查：当前供应商的模型不是 Claude（${basis}），fable / opus / sonnet / haiku 都已映射`);
+  }
+}
+
 // ---------- 检查 3：CLI 版本是否变过 ----------
 const bin = findClaudeBinary();
 let curVersion = null;
