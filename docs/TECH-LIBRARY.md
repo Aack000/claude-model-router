@@ -168,7 +168,7 @@ WebFetch 拦 developers.openai.com 和 github.com；curl 抓 developers.openai.c
 2. 进入 auto 模式时 `stripDangerousPermissionsForAutoMode`（`ZF`）把所有 `OCe` 为真的 allow 规则摘掉，记进 `strippedDangerousRules`，并打 debug 日志 `Ignoring dangerous permission Agent(*) from <来源> (bypasses classifier)`；退出 auto 时 `restoreDangerousPermissions`（`toe`）放回。auto 下取 allow 规则的 `oO()` 也会 `if (OCe(...)) continue` 再跳一次。**所以 `Agent`、`Agent(*)`、`Agent(general-purpose)` 在 auto 下都等于没写。**
 3. **子代理自己的工具调用也各自过分类器**：分类器决策带 `agentId`（`djn(Fr, M.agentId)`），拦截记录会落在子代理的 `agent-*.jsonl` 里。
 4. 附带发现：`isYoloEquivStripEnabledForEntrypoint`（GrowthBook `tengu_ant_yolo_equiv_strip_config`，默认关）一旦服务端打开，auto 下**所有** Bash / PowerShell 的 allow 规则都会被摘（`OCe` 开头那句），安装器的四条放行规则也会失效。这是已知边界，写进了 GUIDE。
-5. 因此**不加第五条安装规则**。免拦的办法仍是临时切出 auto（Shift+Tab），或让 prompt 避开触发词。
+5. 因此**不加第五条安装规则**。免拦的办法仍是临时切出 auto（Shift+Tab）。
 
 **怎么重验**：`permissions.allow` 加 `Agent(general-purpose)`，`claude --debug` 进 auto 派一个子代理，日志里 grep `Ignoring dangerous permission`。
 

@@ -523,8 +523,8 @@ async function checkGatewayModels() {
       fix = '网关返回的不是 JSON，多半是 env.ANTHROPIC_BASE_URL 指到了网页而不是接口。检查这一项，改完再加 --gateway 跑一次';
     } else if (code && code !== 'ERR_INVALID_URL') why = `请求失败：${code}`;
     else if (phase === 'request') {
-      why = '请求没发出去（多半是 base URL 写法不对，比如漏了 https:// 或带了 user:pass@）';
-      fix = '检查 settings.json 里 env.ANTHROPIC_BASE_URL 的写法：只写 https://主机名[:端口][/路径]，凭据放在 ANTHROPIC_AUTH_TOKEN 里。改完再加 --gateway 跑一次';
+      why = '请求没发出去（多半是 base URL 或 token 写法不对，比如 base URL 漏了 https:// 或带了 user:pass@）';
+      fix = '检查 settings.json 里 env.ANTHROPIC_BASE_URL 的写法：只写 https://主机名[:端口][/路径]，凭据放在 ANTHROPIC_AUTH_TOKEN 里；或者检查 ANTHROPIC_AUTH_TOKEN（没设它时是 ANTHROPIC_API_KEY）里有没有换行、全角或不可见字符。改完再加 --gateway 跑一次';
     } else {
       why = '网关返回的不是预期的模型列表格式';
       fix = '这个网关的 /v1/models 返回的结构不是 {"data":[{"id":…}]}，可能不是 Anthropic 兼容的模型列表接口。不影响使用，只是新版检查做不了';
@@ -638,7 +638,7 @@ function checkTranscripts() {
   // 读不了的 transcript 不挡上面的检查（那些只是少了这几个文件的数据），最后单独提醒
   if (readFail) {
     warn(`读 transcript 失败（${readFail.code}）：${readFail.file}${readFail.n > 1 ? ` 等 ${readFail.n} 个文件` : ''}`,
-         '检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序');
+         `检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序。另外上面「子代理实测版本」「第三方模型」「1h 缓存」几条没算这 ${readFail.n} 个文件，结论可能不全`);
   }
 }
 

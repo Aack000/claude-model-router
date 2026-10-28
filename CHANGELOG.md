@@ -20,7 +20,6 @@
 
 - README 给出 EIU 定义并说明它是体量指数、不是花费，实际花费以网关账单或 CC Switch 余额为准
 - 新增 auto 模式下 `Agent` / `SendMessage` 放行规则不生效的调查结论（TECH-LIBRARY §3、GUIDE 安装与已知边界）
-- `doctor --gateway` 的报错按原因分类：base URL 写法问题、返回的不是模型列表格式、网络问题，修复建议不再一律让人等网络
 
 ### 已知限制
 
