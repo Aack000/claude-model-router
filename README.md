@@ -4,7 +4,7 @@
 
 # claude-model-router
 
-[![version](https://img.shields.io/badge/version-v1.0.1-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v1.1.0-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933)](https://nodejs.org)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#安装)
@@ -239,6 +239,8 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 ```
 
 审查单独触发：说「用 code-reviewer 审一下 xxx」。
+
+**小任务默认走轻流程**：改动 ≤ 2 个文件、不改接口时，不启动规划子代理，主会话写一份 ≤ 10 行的计划记录后直接派一个 sonnet 包，审查照常；要先查证、有多种做法、或你说要规划时走完整流程。
 
 ## 换供应商（以 DeepSeek 为例）
 

@@ -185,8 +185,9 @@ if (settings) {
       if (!alias) {
         warn(`modelSettings.${key} 对应的模型现在没有被任何 ANTHROPIC_DEFAULT_*_MODEL 使用`,
              '多半是模型换代后的遗留（/effort 写的是完整 ID）。不生效也不报错，可以删掉');
-      } else if (settings.modelSettings[alias]) {
+      } else if ((settings.modelSettings[alias] || {}).effortLevel && (settings.modelSettings[key] || {}).effortLevel) {
         // 09-20 实测：opus + claude-opus-5 两条并存时，transcript 记录的实际 effort 是别名那条
+        // 两条都写了 effortLevel 才算冲突：完整 ID 键是空对象 {} 时没有第二个 effort，不报
         warn(`modelSettings 里 ${alias} 和 ${key} 指向同一个模型，各写了一个 effort`,
              '两条并存时实际生效哪条容易误判（09-20 实测是别名那条）。只留一条');
       }
@@ -219,12 +220,16 @@ if (settings) {
 
 // ---------- 检查 2：命令与子代理文件 ----------
 for (const f of EXPECTED.files) {
-  const rel = f.p.replace(HOME, '~');
+  const rel = f.p.replace(path.normalize(HOME), '~');   // f.p 是 path.join 出来的（分隔符已规范）；HOME 来自 USERPROFILE，可能带正斜杠，不规范化就换不成 ~
   if (!fs.existsSync(f.p)) {
     err(`缺文件：${rel}`, '从 plugins/model-router/{commands,agents}/ 复制一份回去');
     continue;
   }
-  const head = fs.readFileSync(f.p, 'utf8').slice(0, 800);
+  let head;
+  try { head = fs.readFileSync(f.p, 'utf8').slice(0, 800); } catch (e) {
+    err(`${rel} 读不了（${e.code || e.name}）`, '检查权限，或重新跑安装入口');
+    continue;
+  }
   const m = head.match(/^model:\s*(\S+)\s*$/m);
   if (f.model === null) {
     // 斜杠命令的 model 字段实测不生效，留着只会让人以为规划真跑在 fable 上
@@ -638,7 +643,7 @@ function checkTranscripts() {
   // 读不了的 transcript 不挡上面的检查（那些只是少了这几个文件的数据），最后单独提醒
   if (readFail) {
     warn(`读 transcript 失败（${readFail.code}）：${readFail.file}${readFail.n > 1 ? ` 等 ${readFail.n} 个文件` : ''}`,
-         `检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序。另外上面「子代理实测版本」「第三方模型」「1h 缓存」几条没算这 ${readFail.n} 个文件，结论可能不全`);
+         `检查 ~/.claude/projects 下这个文件的权限，或者关掉占用它的程序。另外完整模式里「子代理实测版本」「第三方模型实测」「1h 缓存实测」三项没算这 ${readFail.n} 个文件，结论可能不全`);
   }
 }
 

@@ -201,7 +201,14 @@ function analyze(j) {
       const e = has(ms, alias) ? ms[alias] : undefined;
       if (e !== undefined && !isObj(e)) { bad.push(alias); continue; }
       const cur = e && has(e, 'effortLevel') ? e.effortLevel : undefined;
-      if (cur === undefined) { work.push({ path: ['modelSettings', alias, 'effortLevel'], op: 'add', value: rec }); miss.push(`${alias}→${rec}`); }
+      // 别名没配时，看有没有按完整模型 ID 配的键（/effort 写的是完整 ID）：有就算已配，别再补别名条（补了 doctor 会报「指向同一个模型」）
+      const pinned = String((env || {})[`ANTHROPIC_DEFAULT_${alias.toUpperCase()}_MODEL`] || '');
+      const strip = (s) => String(s).replace(/\[\d+m\]$/i, '').toLowerCase();
+      const idKey = cur === undefined && pinned ? Object.keys(ms).find((k) => /^claude-/i.test(k) && strip(k) === strip(pinned) && isObj(ms[k]) && has(ms[k], 'effortLevel')) : undefined;
+      if (idKey !== undefined) {
+        const v = ms[idKey].effortLevel;
+        (same(v, rec) ? ok : diff).push(`${alias}（按完整 ID ${idKey} 配）=${disp(v)}${same(v, rec) ? '' : `（推荐 ${rec}）`}`);
+      } else if (cur === undefined) { work.push({ path: ['modelSettings', alias, 'effortLevel'], op: 'add', value: rec }); miss.push(`${alias}→${rec}`); }
       else if (same(cur, rec)) ok.push(`${alias}=${disp(cur)}`);
       else diff.push(`${alias}=${disp(cur)}（推荐 ${rec}）`);
     }
