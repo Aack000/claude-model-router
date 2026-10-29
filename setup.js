@@ -4,11 +4,11 @@
  * setup —— 安装入口。双击启动器（setup.cmd / setup.ps1 / setup.command）和命令行（setup.sh）最终都跑它
  *
  * 用法：node setup.js [install|configure|uninstall|caps] [参数]
- *   不给动作 = 菜单：1 安装·升级（装完接着配模型设置、体检）　2 卸载　3 试运行　4 给 CC Switch 卡片补能力声明（第三方模型，要先装好插件）
+ *   不给动作 = 菜单：1 安装·升级（会问装哪些组件，装好后接着配模型设置、体检）　2 卸载　3 试运行　4 给 CC Switch 卡片补能力声明（第三方模型，要先装好插件）
  *   　　　　　　　　　5 只配模型设置并体检（要先装好插件）
- *   install [--rules=…] [--items=…] [--yes] [--no-configure] [--no-doctor] [--dry-run]
+ *   install [--components=…] [--rules=…] [--items=…] [--yes] [--no-configure] [--no-doctor] [--dry-run]
  *       安装 → 配置模型设置 → 体检，串着跑：前一步失败（退出码不是 0）就停，打印停在哪一步，后面的不跑。
- *       --rules 交给 install.js；--items、--yes 交给 configure.js；--dry-run 两边都给（试运行不预演体检，
+ *       --components、--rules 交给 install.js；--items、--yes 交给 configure.js；--dry-run 两边都给（试运行不预演体检，
  *       还没装过的话也不预演配置，因为没有安装清单）；--no-configure 不配置（体检照跑）；--no-doctor 不体检。
  *       体检的退出码是 1（发现要处理的问题）只打印一行提示，不算失败。
  *   configure [--items=…] [--yes] [--no-doctor] [--dry-run]    配置模型设置 → 体检（同菜单 5）
@@ -19,7 +19,7 @@
  *
  * 菜单这一行用同步逐字节读：不在 stdin 上留挂起的读，后面 install.js 问放行规则、configure.js 问配哪几项时，输入才不会被这里抢走
  * （Windows 控制台上父进程挂着的读会跟子进程抢同一行）；逐字节读也不会多吞管道里后面的行。
- * install.js、configure.js 也是同一种读法，所以管道里一次喂完几行（如 printf '1\n\n\n'：菜单、放行规则、配置各一行）也是各读各的。
+ * install.js、configure.js 也是同一种读法，所以管道里一次喂完几行（如 printf '1\n\n\n\n'：菜单、组件、放行规则、配置各一行）也是各读各的。
  * 串着跑时给安装这一步设环境变量 MR_SETUP_FLOW（后面还要跑哪几步，逗号分隔），install.js 据此决定结尾的「下一步」怎么写。
  * 配置这一步在后面还要跑体检（没给 --no-doctor）时设 MR_SETUP_DOCTOR_NEXT（值是本进程号），configure.js 据此在结束语里去掉「跑一次 doctor.js 体检」。
  * 这两个变量只在这里串着跑时才传给子进程，外面残留的都清掉。
@@ -33,7 +33,13 @@ const { spawnSync } = require('child_process');
 // 配置目录和 Claude Code 一样认 CLAUDE_CONFIG_DIR，没设就是 ~/.claude（各脚本各自内联这一行，单个脚本被拷走也能用）
 const CLAUDE = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(os.homedir(), '.claude');
 const MANIFEST = path.join(CLAUDE, 'plugins', 'model-router', '.install-manifest.json');
-const ACTIONS = { uninstall: 'uninstall.js', caps: 'ccswitch-caps.js' };   // 参数原样转给脚本；install / configure 走下面的 flow
+const ACTIONS = { uninstall: 'uninstall.js' };   // 参数原样转给脚本；install / configure 走下面的 flow，caps 要按组件找脚本（见 capsRel）
+/**
+ * ccswitch-caps.js 在哪：v2.0.0 起在 switch 组件里——装好的副本在 <插件目录>/switch/ 下，原地模式（仓库就在插件目录）在 plugins/switch/ 下。
+ * 返回相对 __dirname 的路径（run() 按它拼），两处都没有返回 undefined（没装 switch 组件）
+ */
+const capsRel = () => [path.join('switch', 'ccswitch-caps.js'), path.join('plugins', 'switch', 'ccswitch-caps.js')]
+  .find((p) => fs.existsSync(path.join(__dirname, p)));
 const USAGE = '用法：setup [install|configure|uninstall|caps] [参数…]；不带参数出菜单';
 const args = process.argv.slice(2);
 const PAUSE = args.includes('--pause');
@@ -65,22 +71,22 @@ function run(script, pass, extraEnv) {
 }
 
 /**
- * 把命令行参数分给各步。--rules 给安装；--items、--yes 给配置；--dry-run 两边都给；--no-configure、--no-doctor 是这里自己的开关。
- * --rules / --items 后面跟着的裸词算它的值（PowerShell 调 .ps1 时会把 --rules=a,b 拆成「--rules=a」「b」两个参数）。
+ * 把命令行参数分给各步。--components、--rules 给安装；--items、--yes 给配置；--dry-run 两边都给；--no-configure、--no-doctor 是这里自己的开关。
+ * --components / --rules / --items 后面跟着的裸词算它的值（PowerShell 调 .ps1 时会把 --rules=a,b 拆成「--rules=a」「b」两个参数）。
  * 不认识的参数立刻拒绝（返回 { bad }），免得前面的步骤白跑
  */
 function splitArgs(list, allowed) {
   const r = { install: [], configure: [], noConfigure: false, noDoctor: false, dry: false };
   let cur = null;    // 当前在接谁的值：'install' | 'configure' | null
-  let need = null;   // 刚给了 --rules / --items 但还没给值（空着往下跑，要等配置那一步才发现，那时安装已经做完了）
+  let need = null;   // 刚给了 --components / --rules / --items 但还没给值（空着往下跑，要等下一步才发现，那时安装已经做完了）
   for (const a of list) {
     const name = a.startsWith('--') ? a.split('=')[0] : null;
     if (need && name) return { bad: need };
     if (name && !allowed.includes(name)) return { bad: a };
-    if (name === '--rules' || name === '--items') {
+    if (name === '--components' || name === '--rules' || name === '--items') {
       if (a.endsWith('=')) return { bad: a };
-      (name === '--rules' ? r.install : r.configure).push(a);
-      cur = name === '--rules' ? 'install' : 'configure';
+      (name === '--items' ? r.configure : r.install).push(a);
+      cur = name === '--items' ? 'configure' : 'install';
       if (a === name) need = a;
     } else if (name) {
       if (a !== name) return { bad: a };   // 这几个开关不带值
@@ -131,10 +137,10 @@ function runFlow({ doInstall, doConfigure, doDoctor, installArgs = [], configure
 
 /** setup install … / setup configure … */
 function flowCmd(kind, list) {
-  const allowed = kind === 'install' ? ['--rules', '--items', '--yes', '--dry-run', '--no-configure', '--no-doctor'] : ['--items', '--yes', '--dry-run', '--no-doctor'];
+  const allowed = kind === 'install' ? ['--components', '--rules', '--items', '--yes', '--dry-run', '--no-configure', '--no-doctor'] : ['--items', '--yes', '--dry-run', '--no-doctor'];
   const a = splitArgs(list, allowed);
   if (a.bad) {
-    console.error(`不认识的参数：${a.bad}\n用法：setup ${kind === 'install' ? 'install [--rules=…] [--items=…] [--yes] [--no-configure] [--no-doctor] [--dry-run]' : 'configure [--items=…] [--yes] [--no-doctor] [--dry-run]'}`);
+    console.error(`不认识的参数：${a.bad}\n用法：setup ${kind === 'install' ? 'install [--components=…] [--rules=…] [--items=…] [--yes] [--no-configure] [--no-doctor] [--dry-run]' : 'configure [--items=…] [--yes] [--no-doctor] [--dry-run]'}`);
     return 2;
   }
   return runFlow({ doInstall: kind === 'install', doConfigure: kind === 'configure' || !a.noConfigure, doDoctor: !a.noDoctor, installArgs: a.install, configureArgs: a.configure, dry: a.dry });
@@ -148,14 +154,18 @@ function menu() {
     state = `已装${m.version ? ` ${m.version}` : ''}（${String(m.installedAt).slice(0, 10)}）`;
   } catch { /* 没装，或不是安装器装的 */ }
   console.log(`model-router 安装器：装到 ${claude}，当前${state}\n`);
-  console.log('  1  安装 / 升级（装好后接着配模型设置、体检）\n  2  卸载\n  3  试运行（只列安装会改什么，不动文件）\n  4  给 CC Switch 卡片补能力声明（第三方模型）\n  5  只配模型设置并体检（要先装好插件）\n  q  退出\n');
+  console.log('  1  安装 / 升级（会问装哪些组件，装好后接着配模型设置、体检）\n  2  卸载\n  3  试运行（只列安装会改什么，不动文件）\n  4  给 CC Switch 卡片补能力声明（第三方模型）\n  5  只配模型设置并体检（要先装好插件）\n  q  退出\n');
   for (;;) {
     const a = readLineSync('选哪个 [1]：');
     if (a === null) { console.log('\n没有输入，什么都没做。'); return 1; }
     const c = a.trim().toLowerCase() || '1';
     if (c === '1') return runFlow({ doInstall: true, doConfigure: true, doDoctor: true });
     if (c === '3') return run('install.js', ['--dry-run']);
-    if (c === '4') return run('ccswitch-caps.js', []);
+    if (c === '4') {
+      const caps = capsRel();
+      if (!caps) { console.log('\n没装 switch 组件（找不到 ccswitch-caps.js）：重跑菜单 1（安装 / 升级）时勾上 switch。'); return 1; }
+      return run(caps, []);
+    }
     if (c === '5') return runFlow({ doInstall: false, doConfigure: true, doDoctor: true });
     if (c === 'q') return 0;
     if (c === '2') {
@@ -171,6 +181,11 @@ function menu() {
 let code;
 if (!rest.length) code = menu();
 else if (rest[0] === 'install' || rest[0] === 'configure') code = flowCmd(rest[0], rest.slice(1));
+else if (rest[0] === 'caps') {
+  const caps = capsRel();
+  if (!caps) { console.error('没装 switch 组件（找不到 ccswitch-caps.js）：重跑安装入口时勾上 switch（node install.js --components=all，三个组件全装，不会卸掉已装的）'); code = 1; }
+  else code = run(caps, rest.slice(1));
+}
 else if (ACTIONS[rest[0]]) code = run(ACTIONS[rest[0]], rest.slice(1));
 else { console.error(`不认识的动作：${rest[0]}\n${USAGE}`); code = 2; }
 if (PAUSE) readLineSync('\n按回车关闭窗口');

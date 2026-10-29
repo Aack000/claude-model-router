@@ -225,10 +225,15 @@ for (const f of EXPECTED.files) {
     err(`缺文件：${rel}`, '从 plugins/model-router/{commands,agents}/ 复制一份回去');
     continue;
   }
-  let head;
-  try { head = fs.readFileSync(f.p, 'utf8').slice(0, 800); } catch (e) {
+  let txt;
+  try { txt = fs.readFileSync(f.p, 'utf8'); } catch (e) {
     err(`${rel} 读不了（${e.code || e.name}）`, '检查权限，或重新跑安装入口');
     continue;
+  }
+  const head = txt.slice(0, 800);
+  // v2.0.0 源文件里写的是 ${CLAUDE_PLUGIN_ROOT}/<脚本>，安装器部署时换成固定路径；还留着就说明不是安装器部署的
+  if (txt.includes('${CLAUDE_PLUGIN_ROOT}')) {
+    warn(`${rel} 里还有没替换的 \${CLAUDE_PLUGIN_ROOT}（不是安装器部署的）`, '重跑安装入口；手动复制的话把它换成插件目录的实际路径');
   }
   const m = head.match(/^model:\s*(\S+)\s*$/m);
   if (f.model === null) {
@@ -260,27 +265,11 @@ if (!fs.existsSync(path.join(__dirname, 'route-check.js'))) {
   err('缺 route-check.js', '/route 靠它核实每个子代理实际跑的模型，从插件仓库恢复');
 }
 
-// usage-audit 的单价表跟不上换代：没进表的模型按 _default 估，账面会偏（10-09 sonnet-5-5 虚高 22% 一周没人发现）
-// 只读 usage-audit.js 的文本、取 PRICE 的键，不执行它
+// 单价表检查（usage-audit 的 PRICE 跟不跟得上换代）v2.0.0 起搬进 usage 组件：doctor 只留一行指向，
+// 没装 usage 组件就什么都不打（core 不该依赖组件的文件）
 {
-  let priceKeys = null;
-  try {
-    const src = fs.readFileSync(path.join(__dirname, 'usage-audit.js'), 'utf8');
-    const block = (src.match(/const PRICE = \{([\s\S]*?)\n\};/) || [])[1];
-    if (block) priceKeys = new Set([...block.matchAll(/'([^']+)'\s*:/g)].map((x) => x[1]));
-  } catch { /* 没有 usage-audit.js 就不查 */ }
-  if (priceKeys && settings) {
-    const unpriced = Object.entries(settings.env || {})
-      .filter(([k]) => /^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(k))
-      .map(([, v]) => String(v).replace(/\[\d+m\]$/i, '').replace(/^claude-/, ''))
-      .filter((key) => !priceKeys.has(key) && !priceKeys.has(key.replace(/-\d{8}$/, '')));
-    if (unpriced.length) {
-      warn(`usage-audit 的单价表里没有 ${[...new Set(unpriced)].join('、')}，花费会按默认价估`,
-           '在 usage-audit.js 的 PRICE 里补一行；拿不到账单就先按同族上一代的价，注释写明是估的');
-    } else {
-      ok('env 钉的模型在 usage-audit 单价表里都有价');
-    }
-  }
+  const u = [path.join(__dirname, 'usage', 'usage-audit.js'), path.join(__dirname, 'plugins', 'usage', 'usage-audit.js')].find((p) => fs.existsSync(p));
+  if (u) ok('ℹ 单价表检查在 usage 组件：node ' + path.join(__dirname, 'usage-audit.js').replace(path.normalize(HOME), '~') + ' --check');
 }
 
 // 几个别名钉同一个模型（比如第三方供应商全映射到一个模型省钱）：CLI 分不清子代理是哪个角色，

@@ -2,6 +2,46 @@
 
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v2.0.0
+
+日期：2026-10-29
+
+### 变更
+
+- 拆成三个插件：`model-router`（核心流程，仍在仓库根）、`model-router-usage`（`plugins/usage/`）、`model-router-switch`（`plugins/switch/`）；新增 `.claude-plugin/marketplace.json`（实验性，见「文档」）。装好后的布局是 `<插件目录>/usage/`、`<插件目录>/switch/`，原来的 `provider.js`、`ccswitch-caps.js`、`providers/` 从根目录搬进 `switch/`
+- 安装器按组件装：`--components=core,usage,switch`（也认编号、`all`、`core`）；新装默认 core，检测到 CC Switch 时自动带 switch，**v1.x 升级（旧清单里没有组件记录）默认全装三个组件**，装过 v2 的沿用上次选择；`audit` 放行规则只在选了 usage 时才列出来；不给参数时先问一行组件（没有终端的非交互也按同样的默认走）；这样旧的 `usage-audit.js` 命令和已加的 `audit` 放行规则在 v1.x 升级后照常可用；`provider.js` / `ccswitch-caps.js` / `providers/deepseek.json` 升级后都在 `switch/` 下装好（不会只清掉旧文件却不装新的），但路径变了，见升级说明
+- 从装好的插件目录跑安装入口（副本模式）：新勾的组件在源目录里找不到文件时，动任何文件之前就停（退出 2）并提示从仓库或解压目录跑；已装的组件这次没勾，副本模式不删文件，只打一行提示。根目录 `usage-audit.js` 转发脚本和 `setup caps` 发现组件没装时，提示里给的是 `--components=all`（`--components` 给的是完整的选择，只写缺的那一个会把已装的另一个卸掉）
+- v1.x 时在旧 `providers/` 里自建的供应商 json：v2 只读 `switch/providers/`，安装器发现旧目录里有清单外的 json 时提示挪过去（只提示，不动文件）
+- 组件文件是写死的清单（usage：`usage-audit.js`、`usage-balance.js`；switch：`provider.js`、`ccswitch-caps.js`、`providers/deepseek.json`），不递归复制：源目录里自己的本地数据（`calibration.jsonl`、`usage-baseline.json`、自建的供应商文件、编辑器备份）不会被装进插件目录、不记进清单，升级和卸载都不会覆盖或误删
+- 根目录的 `usage-audit.js` 换成转发脚本：CLAUDE.md、放行规则、你记的老命令（`node ~/.claude/plugins/model-router/usage-audit.js …`）照常可用
+- CC Switch 检测：只看 `~/.cc-switch`、Windows 的 `cc-switch.exe`、macOS 的 `CC Switch.app` 在不在（`existsSync`，不读任何文件）
+- 用量插件（`plugins/usage/`）：
+  - 起点识别同时认命令记录和 `Skill` 调用；默认在轮内空闲 120 分钟处截断（`--gap 0` 不截）
+  - **EIU 废弃**：报表只看 `$`、调用数和时长；含 `eiuWeights` 的旧基线自动忽略 EIU 项（其中的主会话占比旧基线按 EIU 算、口径不同，标「不可比」、不相减），旧位置的基线自动回退读取（装好的布局、原地模式 / 仓库里跑都找得到）；口径不同的旧基线只比 `$` 项
+  - 新增 `--rounds`：按 `/route` 轮看每轮 `$` / 耗时 / 阶段占比 / 审查条数 / 分类器拦截（`--json` 可机读）；「$实付分摊」= 该轮可见 `$` ÷ (1 − 隐形占比)，分母含 `/route` 之外的调用和没打过 `/route` 的会话；起点早于统计区间的轮，空闲从区间开头量起，不会被默认的空闲截断误截
+  - 新增 `--check`：settings.json 里 env 钉的模型有没有单价（原 doctor 里的单价表检查，搬到 usage 组件）；查价前去掉 `claude-` 前缀和 `[1M]` 之类的后缀，保留 `[1M]` 的配置不会误报
+  - 新增 `usage-balance.js`：记一次实付读数（new-api 中转站的累计用量、DeepSeek 那种真余额、`--amount` 手填、`--plan` 包月），读数按 `unit`（多少读数算 1 美元）折算，**各家的额度符号不同**，不写就不折算、只记读数，`usage-audit` 据此把「实付」和隐形占比校准出来；`--rounds` 在校准后多一列「$实付分摊」
+  - 校准口径：实付是两次读数之间那一段（读数段）的实付，可见 `$` 也只取这一段里的调用，整份报表只用这一个隐形占比；读数只在同一家、同一种记法（余额 / 用量读数）之间相减；从最后一条读数往前找连续段，遇到额度重置、余额充值、换币种就停，口径行写「读数段从 X 起算」；起点优先取统计区间前最近的一条，段内没有再取区间内最早的一条；汇率取最后一条读数的、没有取起点的、再没有取连续段里最近一条带汇率的
+  - 校准的门槛与提示：读数段至少 50% 落在统计区间里才用，覆盖率不够时改用区间内的那一对；读数段超出区间时，样本行写「可见 $X（其中落在本区间 $Y）」；读数段不到 1 小时或只占本区间可见 `$` 不到 20% 时，口径行加「样本短，仅供参考」；给了 `--project` 时隐形占比仍按整个账号在读数段内的调用算，再套到本项目；包月（`--plan`）时 `$` 列打「—」；有读数段时口径行写「读数段实付」（只手填时写「手填实付」），「N 次 API 调用（原始 M 行…）」只数统计区间内的行
+- `route.md` 的脚本路径改成 `${CLAUDE_PLUGIN_ROOT}`：安装器部署时换成固定路径，原生插件安装时由 CLI 自己替换；新增 **P10 措辞禁区**（必带十条，原 P1–P9）
+- `doctor.js`：命令文件里还留着没替换的 `${CLAUDE_PLUGIN_ROOT}`（不是安装器部署的）时给 ⚠；单价表检查搬进 usage 组件，core 不再依赖组件的文件
+- `uninstall.js`：按组件找 `ccswitch-caps.js`（装好的副本在 `switch/`，原地模式在 `plugins/switch/`，兼容 v1.x 旧平铺）；收空目录的清单加上 `switch/providers`、`switch`、`usage`
+- `setup.js`：透传 `--components`；菜单 4 和命令行 `caps` 在没装 switch 组件时给提示（exit 1）
+
+### 文档
+
+- README 仓库结构按三插件重画，安装一节补组件说明（含 v1.x 升级默认全装、组件文件写死清单、副本模式、`--components=all` 提示）与「实验性：原生插件市场」（放在安装一节最后），用法补 `usage-balance.js` 与校准要点；自定义供应商一节改成 `switch/providers/` 并说明 v1.x 旧文件要挪；手动安装说明补「`${CLAUDE_PLUGIN_ROOT}` 要换成 `~/.claude/plugins/model-router`，或直接用一键安装」；实测数据表去掉 EIU
+- GUIDE 重做：「统一度量衡」改成「用量插件」（无 EIU、校准口径与方法限制、按轮、`--check`、基线）；手动复制说明补 `${CLAUDE_PLUGIN_ROOT}`；安装 flow 补组件小节；「已知边界」补 auto 模式下 Agent 被拦的实测结论、marketplace 实验性、中转站实测、分类器在非 Claude 主模型下的表现、跨家族分工里 `route-check` 要在会话内跑
+- TECH-LIBRARY 新增「§4 原生 marketplace 实测」
+
+### 升级说明
+
+- **装过的用户跑一次安装入口**（`setup.cmd` / `setup.ps1` / `./setup.sh`）：会问装哪些组件。**v1.x 装的是全部功能，所以不带 `--components` 时默认全装三个组件**（usage、switch 都在，旧的 `usage-audit.js` 命令和老放行规则一字不差照常可用）；想要精简，输入编号只选要的。原 v1.x 平铺的 `provider.js` / `ccswitch-caps.js` / `providers/` 里没改过的会被自动清掉并换成 `switch/` 下的新版（改过的留着并提示），根目录 `usage-audit.js` 覆盖成转发脚本
+- **`provider.js`、`ccswitch-caps.js` 的路径变了**：旧的 `node ~/.claude/plugins/model-router/provider.js …` 升级后会报找不到模块，改成 `node ~/.claude/plugins/model-router/switch/provider.js …`；`ccswitch-caps.js` 同理改到 `switch/`（用了别名或脚本的要自己改）。只有 `usage-audit.js` 在根目录留了转发脚本
+- **自定义供应商文件要挪**：v1.x 时你在旧 `providers/` 里自己建的 json（如 `deepseek-pro.json`），v2 的 `provider.js` 和 `ccswitch-caps.js` 只读 `<插件目录>/switch/providers/`，要自己挪过去；安装器发现后会提示，但不会动它们
+- 之后想补装某个组件：重跑安装入口时用 `--components=all`（三个全装、不会卸掉已装的）；`--components` 给的是完整的选择，别手敲只含缺的那一个的列表，没列的已装组件会被卸掉
+- 原生 marketplace 路线仍是实验性：装完命令前缀是 `/model-router:route`，放行规则要自己加
+
 ## v1.1.0
 
 日期：2026-10-28

@@ -172,4 +172,16 @@ WebFetch 拦 developers.openai.com 和 github.com；curl 抓 developers.openai.c
 
 **怎么重验**：`permissions.allow` 加 `Agent(general-purpose)`，`claude --debug` 进 auto 派一个子代理，日志里 grep `Ignoring dangerous permission`。
 
-**决定（2026-10-27）**：不加第五条安装规则、`doctor.js` 不加提醒；只把结论写进文档。10 轮实测里 Agent 被拦 14 次（仅次于 Bash 的 29 次），要不要改派活写法留到下一轮瘦身时一起定。
+**决定（2026-10-27）**：不加第五条安装规则、`doctor.js` 不加提醒；只把结论写进文档。10 轮实测里 Agent 被拦 14 次（仅次于 Bash 的 29 次），v2.0.0 已在 /route 加 P10 措辞禁区（只降低被拦概率，免不掉），见 GUIDE「已知边界」。
+
+---
+
+## 4. 原生 marketplace 实测（2026-10-28）
+
+**结论：能装，但只作实验性路线；日常仍用安装器分组件。**
+
+- `claude plugin marketplace add <仓库目录>` 与 `claude plugin install model-router@model-router-marketplace` 走通，`claude plugin validate` 通过（`source: "./"` 一次就过）
+- 装好后命令前缀是 `/model-router:route`；裸名 `/route` 不可用（与插件命名空间有关，不是配置能改的）
+- 原生装不改 `settings.json`：放行规则要用户自己加；`Agent` / `SendMessage` 的规则在 auto 模式下仍会被 CLI 摘掉（见 §3）
+- 源文件里的 `${CLAUDE_PLUGIN_ROOT}` 由 CLI 自己替换，指向**插件源目录**；安装器路线则由 `install.js` 的 `retarget()` 换成固定路径（默认 `~/.claude/plugins/model-router/…`）
+- 因此 v2.0.0 的决定（C-a）：以安装器分组件为主，`marketplace.json` 随仓库发、文档标实验性

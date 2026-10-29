@@ -3,6 +3,13 @@
   "docs": "https://api-docs.deepseek.com/guides/anthropic_api",
   "note": "四个别名全映射到 deepseek-flash（最省）。想让规划和审查更强，把 FABLE、OPUS 两行换成 deepseek-v4-pro[1M]（单价约 4.4 倍）——但别直接改这个文件：它是安装器管理的，升级时会被备份后覆盖。复制一份另起名字（如 deepseek-pro.json）再改，provider.js --list 会列出来，启动时写 provider.js deepseek-pro。能力声明 10-26 实测接口都接受；删掉这几行 CLI 就不发 effort / thinking，交给 DeepSeek 默认",
   "keyEnv": ["DEEPSEEK_API_KEY"],
+  "balance": {
+    "url": "https://api.deepseek.com/user/balance",
+    "method": "GET",
+    "auth": "bearer",
+    "amountPath": "balance_infos.0.total_balance",
+    "currencyPath": "balance_infos.0.currency"
+  },
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-flash[1M]",

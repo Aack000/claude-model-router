@@ -4,7 +4,7 @@
 
 # claude-model-router
 
-[![version](https://img.shields.io/badge/version-v1.1.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v2.0.0-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933)](https://nodejs.org)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#安装)
@@ -40,7 +40,7 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 - **上下文可见、膨胀有刹车**：`route-check.js` 每轮输出「主会话当前上下文」；审查报告落盘后超过 300k 会附一行现成的 `/compact` 提示（只给不催）；`autoCompactWindow` 控制原生自动压缩的触发点
 - **子代理隔离上下文**：规划、审查读的一大堆文件留在子代理上下文里，只有结论回主会话——不污染主上下文，也不打爆 prompt cache（实测比切模型省约 8 倍 token）
 - **防静默跑错**：每个子代理返回后核实它实际跑的模型（不是看配置推断），跑错当场报，不用等账单
-- **用量可度量**：`usage-audit.js` 提供统一口径的成本统计（EIU、缓存命中率、子代理规模分档、缓存 TTL 模拟），所有结论可复现。EIU（等效输入单位）是把一次调用的四类 token 按固定权重（输入 1、输出 5、5 分钟写缓存 1.25、读缓存 0.1、1h 写缓存 2）折成的**体量指数**，只用来比相对大小和趋势，**不是花费**：花费看 `$` 列（按各模型公开价分项算），实际花了多少以网关账单或 CC Switch 余额为准；EIU 会随用量统计拆成独立插件而废弃。口径见 [GUIDE「统一度量衡」](docs/GUIDE.md#统一度量衡usage-auditjs)
+- **用量可度量**：`usage-audit.js`（v2.0.0 起在 `plugins/usage/`，根目录留转发脚本）提供统一口径的成本统计：`$/h`、缓存命中率、子代理规模分档、缓存 TTL 模拟、按 `/route` 轮看、`--check` 单价表检查，所有结论可复现。`$` 按各模型公开价分项算，**只作大致对比**（判断「是不是更便宜」够用），准确金额以网关账单为准；想校准实付就跑一次 `usage-balance.js`（见[用法](#用法)）。EIU 已在 v2.0.0 废弃。口径见 [GUIDE「用量插件」](docs/GUIDE.md#用量插件usage-auditjspluginsusage)
 - **配置可体检**：`doctor.js` 一条命令核查网关连通、别名钉版、孤儿键，可挂 SessionStart 钩子静默自检
 - **不存任何 key**：供应商与凭据由 Claude Code / CC Switch 管理；只有 `provider.js` 在启动时从环境变量读 key、交给那一个会话，会话结束就删临时文件
 - **能换供应商**：别名映射到 DeepSeek 等第三方模型时，流程照样按阶段派活，`route-check` / `doctor` / `usage-audit` 都认第三方模型（DeepSeek 10-26 实测）
@@ -49,17 +49,17 @@ Claude Code 插件 **model-router**：按任务阶段分配模型（规划 / 实
 
 单机 22 天口径（`usage-audit.js` 可复现，统计口径详见 [GUIDE](docs/GUIDE.md)）：
 
-| 期间 | 平均 EIU/h | 平均 $/h |
-|---|---|---|
-| 纯 Opus（10 天） | 5.87 | $32.9 |
-| route 模式（7 天） | 5.03 | **$25.3（−23%）** |
+| 期间 | 平均 $/h（大致对比） |
+|---|---|
+| 纯 Opus（10 天） | $32.9 |
+| route 模式（7 天） | **$25.3（−23%）** |
 
 | 发现 | 数字 |
 |---|---|
 | 成本大头是上下文长度，不是输出 | 缓存读写合计 **92%**，输出仅 7.6% |
 | 规划走子代理 vs 主会话切模型 | 约 **1/8** token（切模型令缓存全量归零） |
 | 主会话缓存 TTL 5min → 1h | 回放 16 天：日均 **−$18.6** |
-| 子代理规模超 200 次调用 | EIU/调用翻 **2.6 倍**（平方级膨胀，流程已加收工条款） |
+| 子代理规模超 200 次调用 | 每次调用的体量翻 **2.6 倍**（按当时的 EIU 折算；平方级膨胀，流程已加收工条款） |
 
 > 样本为单人真实工作负载，绝对金额与你的模型单价相关，比例关系更有参考价值。
 
@@ -73,12 +73,15 @@ agents/planner-fable.md        规划子代理（frontmatter 钉模型）
 agents/code-reviewer.md        审查子代理
 route-check.js              每轮结束后核实子代理实际跑的模型
 doctor.js                      配置体检（网关、别名、孤儿键等）
-usage-audit.js                 用量统计（价格口径内置；基线用 --baseline 自行生成，不入库）
+usage-audit.js                 旧路径转发脚本（真脚本在 plugins/usage/，老命令照常可用）
+plugins/usage/usage-audit.js   用量统计（$ 口径内置；--rounds 按轮、--check 单价表；基线 / 校准记录同目录、不入库）
+plugins/usage/usage-balance.js 记一次实付读数（余额或中转站累计用量），给 usage-audit 校准隐形占比
+.claude-plugin/marketplace.json 三个插件的市场清单（实验性，见「安装」最后一节）
 route-clean.js              清理 /route 过程文件
-provider.js                    只给一个会话换供应商（不动 CC Switch、不改 settings.json）
-ccswitch-caps.js               给 CC Switch 里映射到第三方模型的卡片补能力声明（安装菜单第 4 项）
+plugins/switch/provider.js     只给一个会话换供应商（不动 CC Switch、不改 settings.json）
+plugins/switch/ccswitch-caps.js 给 CC Switch 里映射到第三方模型的卡片补能力声明（安装菜单第 4 项）
 configure.js                   装完接着配模型设置（modelSettings、effortLevel 等，安装菜单第 5 项也能单独跑）
-providers/*.json               供应商配置（别名映射、能力声明、key 从哪个环境变量读）
+plugins/switch/providers/*.json 供应商配置（别名映射、能力声明、key 从哪个环境变量读、余额 / 用量接口）；仓库只带 deepseek.json，自建的放这里、安装器不碰
 setup.cmd / .ps1 / .sh / .command   安装入口：双击或命令行，出菜单（Windows / PowerShell / Linux·macOS / macOS 访达）
 setup.js                       菜单本体，也负责把「安装 → 配置模型设置 → 体检」串起来（上面四个都调它）
 install.js / uninstall.js      安装 / 卸载（入口最终跑这两个，也能直接调）
@@ -106,7 +109,7 @@ git clone https://github.com/Aack000/claude-model-router.git
 | macOS | `setup.command`（访达里双击） | `./setup.sh` |
 | Linux | — | `./setup.sh` |
 
-不带参数出菜单：1 安装 / 升级（装完接着配模型设置、体检，见下面「安装 flow」）、2 卸载、3 试运行（只列会改什么，不动文件）、4 给 CC Switch 卡片补能力声明（见下面「换供应商」）、5 只配模型设置并体检（要先装好插件）。选了安装会先逐条列出放行规则让你勾，接着列出模型设置的各项再问一次，两次都是直接回车按默认。
+不带参数出菜单：1 安装 / 升级（先问装哪些组件，装完接着配模型设置、体检，见下面「装哪些组件」和「安装 flow」）、2 卸载、3 试运行（只列会改什么，不动文件）、4 给 CC Switch 卡片补能力声明（见下面「换供应商」）、5 只配模型设置并体检（要先装好插件）。选了安装会依次问组件（装哪些）、放行规则（逐条列出让你勾）、模型设置（列出各项）三次，都是直接回车按默认。
 
 带参数就直接执行、不出菜单：
 
@@ -116,9 +119,24 @@ git clone https://github.com/Aack000/claude-model-router.git
 ./setup.sh install --yes                 # 模型设置不逐项问，按默认勾的来
 ./setup.sh install --items=effort,fallback --no-doctor   # 模型设置只配这两项，装完不体检
 ./setup.sh install --no-configure        # 只装插件（和体检），不配模型设置
+./setup.sh install --components=core,usage   # 装哪些组件：名字或编号，all = 全装（见下面「装哪些组件」）
 ./setup.sh configure                     # 只配模型设置并体检（= 菜单 5，要先装好插件）
 ./setup.sh uninstall                     # 卸载，同样支持 --dry-run
 ```
+
+**装哪些组件（v2.0.0 起，`--components=core,usage,switch`）**：也认编号（1 core、2 usage、3 switch）和 `all` / `core`。**core 必装**；没给参数时会先问一行（回车 = 按勾的来，输入编号 = 只要这几个，`0` = 只装 core），输入已结束（管道、没有终端）时不问、直接用默认。默认勾哪些：
+
+| 组件 | 装什么 | 默认 |
+|---|---|---|
+| core | `/route` 流程、`route-check`、`route-clean`、`doctor`、`configure`、根目录的 `usage-audit.js` 转发脚本 | 总是装 |
+| usage | 用量统计（`usage-audit.js`、`usage-balance.js`），装到 `<插件目录>/usage/` | 新装不勾；**v1.x 升级默认勾上** |
+| switch | 供应商工具（`provider.js`、`ccswitch-caps.js`、`providers/deepseek.json`），装到 `<插件目录>/switch/` | 新装时检测到 CC Switch（`~/.cc-switch`）才勾；**v1.x 升级默认勾上** |
+
+- **v1.x 升级不带 `--components` 时默认全装三个组件**：v1.x 装的就是全部，只装 core 的话，旧的 `usage-audit.js` 命令会失效、装过的 `audit` 放行规则会被去掉。新用户第一次装仍只默认 core（检测到 CC Switch 再加 switch）；装过 v2 的，沿用清单里记的上次选择。
+- **组件文件是写死的清单，不是递归复制**：上表那几个文件才会装。源目录里自己的本地数据（`calibration.jsonl`、`usage-baseline.json`、自建的供应商文件、编辑器备份）不会被装进插件目录、也不记进清单，升级和卸载都不会覆盖或误删它们。
+- **装完布局**：core 仍平铺在 `~/.claude/plugins/model-router/`，组件在同名子目录里；v1.x 装过的平铺 `provider.js` / `ccswitch-caps.js` / `providers/` 里没改过的会被自动清掉（改过的留着并提示）。**自定义供应商文件现在放 `<插件目录>/switch/providers/`**：v1.x 在旧 `providers/` 里自建的 json 要自己挪过去，安装器发现后会提示，但不动它们。
+- **从装好的插件目录跑安装（副本模式）**：新勾的组件在源目录里找不到文件，动任何文件之前就停（退出 2），提示从下载的仓库或解压出来的目录跑安装入口；已装的组件这次没勾，副本模式不删它的文件，会提示一行「要去掉从仓库目录跑安装入口，或者用卸载」。
+- **没装的组件被用到时**：根目录的 `usage-audit.js` 转发脚本、`setup caps` 会提示 `node install.js --components=all`（三个全装、不会卸掉已装的）；别手敲只含缺的那个组件的列表，那会把没列的已装组件卸掉。
 
 Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接跑 `node install.js …`、`node configure.js …`、`node uninstall.js …`，各自认的参数见下；串联「安装 → 配置 → 体检」是 `setup` 做的，直接跑 `install.js` 只装插件，结尾会提示接着跑 `configure.js`。
 
@@ -128,6 +146,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 | 参数 | 交给 | 作用 |
 |---|---|---|
+| `--components=…` | `install.js` | 装哪些组件，写法见上 |
 | `--rules=…` | `install.js` | 放行规则，写法见上 |
 | `--items=…` | `configure.js` | 只配这几项：写名字，逗号分隔（如 `--items=effort,fallback`）；`all` = 全做，`none` = 都不做；给了就不再逐项问。也可以用编号，编号按屏幕上列出的顺序，不同平台可能不同，写脚本时用名字 |
 | `--yes` | `configure.js` | 不问，按默认勾的来 |
@@ -165,7 +184,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 |---|---|---|---|
 | `clean` | ✓ | `node ~/.claude/plugins/model-router/route-clean.js …` | `/route` 收尾删过程文件被拦，流程卡住等人 |
 | `check` | ✓ | `node ~/.claude/plugins/model-router/route-check.js …` | `/route` 每个子代理返回后都要核模型，被拦就停 |
-| `audit` |  | `node ~/.claude/plugins/model-router/usage-audit.js …` | 让 Claude 查用量时偶尔要你手动批 |
+| `audit` |  | `node ~/.claude/plugins/model-router/usage-audit.js …`（旧路径，转发到 usage 组件；没选 usage 时不列出这条） | 让 Claude 查用量时偶尔要你手动批 |
 | `doctor` |  | `node ~/.claude/plugins/model-router/doctor.js`（只放不带参数的） | 同上；`--gateway` 要读凭据，始终不放行 |
 
 为什么要放行规则：auto 模式的权限分类器会误拦这几个脚本（作者实测 route-check 300 多次里被拦 5 次），命中放行规则的命令不送分类器。每条规则只放插件自带的一个脚本，边界由脚本自己守：`route-clean.js` 只删 `.route-plan.md`、`.route-plan-*.md`、`.route-handoff-*.md` 三种文件名，并跳过被 git 跟踪的文件；其余三个只读。改 `settings.json` 前先备份（同一秒连跑也不会互相覆盖），只动 `permissions.allow`，写完核对 env 和其余配置一字不差。再跑一次少选几条，上次安装加的会被去掉；你自己原先加过的同名规则不动。这些规则 Claude 自己加不了（auto 模式下给自己放权会被拦），所以要你亲手跑。**派子代理（Agent 工具）没法用放行规则免拦**：auto 模式会把 Agent 的放行规则整条忽略，查证结论见 [TECH-LIBRARY §3](docs/TECH-LIBRARY.md)。
@@ -205,7 +224,7 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 2. **命令与子代理**，二选一：
 
-   - 把 `commands/*.md` 拷进 `~/.claude/commands/`、`agents/*.md` 拷进 `~/.claude/agents/`；
+   - 把 `commands/*.md` 拷进 `~/.claude/commands/`、`agents/*.md` 拷进 `~/.claude/agents/`。**拷完要把 `commands/route.md`、`commands/plan-fable.md` 里的 `${CLAUDE_PLUGIN_ROOT}` 全部换成 `~/.claude/plugins/model-router`**（只有安装器和原生插件安装会替换它；不换的话 Bash 把它展开成空串，`node ${CLAUDE_PLUGIN_ROOT}/route-check.js` 会变成 `node /route-check.js`，找不到文件）。嫌麻烦就直接用上面的一键安装，它替你换；
    - 或在 `settings.json` 里把插件目录挂载为 marketplace：
 
      ```json
@@ -227,9 +246,23 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 3. **settings.json**：按 [GUIDE #安装](docs/GUIDE.md) 配置模型别名与 effort（`modelSettings`、`autoCompactWindow`、删掉 `CLAUDE_CODE_SUBAGENT_MODEL` 等）。手动安装没有安装清单，`configure.js` 用不了（它会提示先装），所以这一步要自己改；想让安装器问着帮你配，用上面的「一键安装」。
 
-> `route-check.js` / `doctor.js` / `usage-audit.js` 按插件目录路径调用。若你把仓库克隆到了别的位置，请同步修改 `commands/route.md` 里的调用路径，或保持默认路径不变。
+> `route-check.js` / `doctor.js` / `usage-audit.js` 按插件目录路径调用。手动拷命令文件时，把 `commands/route.md`、`commands/plan-fable.md` 里的 `${CLAUDE_PLUGIN_ROOT}` 换成你实际的插件目录（默认是 `~/.claude/plugins/model-router`，照上面第 2 步）；若你把仓库克隆到了别的位置，换成那个位置。想省掉这一步，用一键安装：它按配置目录自动换。
 
-装完先跑 `node doctor.js` 做一次配置体检；再跑一轮 `/route` 后用 `node route-check.js` 核实各子代理实际跑的模型。
+装完先跑 `node doctor.js` 做一次配置体检（命令文件里还留着没替换的 `${CLAUDE_PLUGIN_ROOT}` 时它会报 ⚠）；再跑一轮 `/route` 后用 `node route-check.js` 核实各子代理实际跑的模型。
+
+### 实验性：原生插件市场
+
+仓库里带了 `.claude-plugin/marketplace.json`（三个条目：`model-router` / `model-router-usage` / `model-router-switch`），可以走 Claude Code 原生的插件市场：
+
+```bash
+claude plugin marketplace add <仓库目录>
+claude plugin install model-router@model-router-marketplace
+```
+
+- 命令前缀是 `/model-router:route`（不是 `/route`）
+- 放行规则要自己加（原生装不会改 settings.json）
+- `${CLAUDE_PLUGIN_ROOT}` 由 CLI 自己替换成插件源目录
+- 这条路只做过实测走通，**仍标实验性**；日常还是用安装器（分组件、自动配放行规则和模型设置）。实测记录见 [TECH-LIBRARY §4](docs/TECH-LIBRARY.md)
 
 ## 用法
 
@@ -242,18 +275,37 @@ Windows 把 `./setup.sh` 换成 `setup.cmd` 或 `.\setup.ps1`。也可以直接�
 
 **小任务默认走轻流程**：改动 ≤ 2 个文件、不改接口时，不启动规划子代理，主会话写一份 ≤ 10 行的计划记录后直接派一个 sonnet 包，审查照常；要先查证、有多种做法、或你说要规划时走完整流程。
 
+**看用量**（v2.0.0 起在 usage 组件里，旧路径仍可用）：
+
+```bash
+node ~/.claude/plugins/model-router/usage-audit.js                 # 最近 7 天日报（$ 大致对比）
+node ~/.claude/plugins/model-router/usage-audit.js --rounds        # 按 /route 轮看每轮 $ / 耗时 / 阶段占比
+node ~/.claude/plugins/model-router/usage-audit.js --check         # env 钉的模型有没有单价
+node ~/.claude/plugins/model-router/usage/usage-balance.js --amount 3        # 记一笔实付（手填）
+node ~/.claude/plugins/model-router/usage/usage-balance.js --provider deepseek --rate 7.2   # 真余额，key 走 DEEPSEEK_API_KEY
+```
+
+`usage-balance.js` 只打印一行金额 / 读数，失败只打状态码，不打印 URL 和 key；记满两次读数后，`usage-audit` 会自动把「实付」和隐形占比校准出来（`--plan` 表示包月套餐）。new-api 系的中转站用 `--provider <名>` 读它的累计用量接口，`unit` 写在供应商文件里，也可以跑的时候加 `--unit`——它表示「多少读数算 1 美元」，**每家的额度符号都不一样**（有的按分、有的按自家额度、有的还带汇率），所以不写死也不猜；不给 `unit` 时只记读数、不折算 $。中转站的供应商文件含你自己的地址，仓库里不放，自己在 `switch/providers/` 下建（仓库只带 DeepSeek 那一份）。
+
+校准的要点（细节和方法限制见 [GUIDE「校准」](docs/GUIDE.md)）：
+
+- **实付只算两次读数之间那一段**，可见 $ 也只取这一段里的调用，两者比出隐形占比；整份报表只用这一个占比。读数只在同一家、同一种记法（余额 / 用量读数）之间相减；中途遇到额度重置、余额充值、换币种，就从那个断点之后起算，口径行会写明。
+- 读数段至少一半落在统计区间里才用；读数段不到 1 小时、或只占本区间可见 $ 的不到 20% 时，口径行标「样本短，仅供参考」。给了 `--project` 时，隐形占比仍按整个账号在读数段内的调用算，再套到本项目。
+- `--rounds` 的「$实付分摊」= 该轮可见 $ ÷ (1 − 隐形占比)，分母含 `/route` 之外的调用。`--check` 查价前先去掉 `claude-` 前缀和 `[1M]` 之类的后缀，所以保留 `[1M]` 的配置不会误报。
+- 旧基线（v1.x 存的）自动回退读取；含 EIU 的旧基线只用 $ 项比较，主会话占比口径不同、标「不可比」。EIU 已在 v2.0.0 废弃。
+
 ## 换供应商（以 DeepSeek 为例）
 
-`/route` 按别名派活（规划 fable、审查 opus、实现 sonnet），别名映射到哪个模型由 `ANTHROPIC_DEFAULT_*_MODEL` 决定。所以换供应商只是换一套映射，流程不用改。**目前只实测适配了 DeepSeek**，其他供应商还没适配（`providers/` 里只有 DeepSeek 一份配置）；用 CC Switch 时，`/route` 按当前卡片的模型映射走。两种用法：
+`/route` 按别名派活（规划 fable、审查 opus、实现 sonnet），别名映射到哪个模型由 `ANTHROPIC_DEFAULT_*_MODEL` 决定。所以换供应商只是换一套映射，流程不用改。**目前只实测适配了 DeepSeek**，其他供应商还没适配（`plugins/switch/providers/` 里只有 DeepSeek 一份配置）；用 CC Switch 时，`/route` 按当前卡片的模型映射走。两种用法：
 
-**① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`providers/deepseek.json`](providers/deepseek.json) 的 `env`（再加上 key）。
+**① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`plugins/switch/providers/deepseek.json`](plugins/switch/providers/deepseek.json) 的 `env`（再加上 key）。
 
 卡片里常漏的是能力声明（`ANTHROPIC_DEFAULT_*_MODEL_SUPPORTED_CAPABILITIES`，见下面实测第 3 条）。可以让安装器补：菜单选 4，或者
 
 ```bash
-node ~/.claude/plugins/model-router/ccswitch-caps.js --dry-run   # 先看会补什么
-node ~/.claude/plugins/model-router/ccswitch-caps.js             # 列出计划，确认后才写
-node ~/.claude/plugins/model-router/ccswitch-caps.js --undo      # 撤回补过的
+node ~/.claude/plugins/model-router/switch/ccswitch-caps.js --dry-run   # 先看会补什么
+node ~/.claude/plugins/model-router/switch/ccswitch-caps.js             # 列出计划，确认后才写
+node ~/.claude/plugins/model-router/switch/ccswitch-caps.js --undo      # 撤回补过的
 ```
 
 它按卡片 `ANTHROPIC_BASE_URL` 的主机名对上 `providers/*.json` 里的供应商，只给映射到第三方模型的别名补**缺的**能力声明和 `_NAME`，已有的键不改；对不上的卡片只列出来、不动。当前卡片以本机 `~/.claude/settings.json` 为准（CC Switch 的编辑框读写的就是它）：本机缺的才补，数据库里那份副本跟着补；本机已有的键不动。撤回只删值还是当初补的那几行，值被你改过的报一次就不再管；数据库搬了位置用 `--undo --db <新路径>`。写之前要求先退出 CC Switch，先备份数据库和 settings.json，写完核对其余内容一字不差；输出里不出现 key 和完整地址。要 Node 22.13+（读 CC Switch 的 SQLite 数据库），版本不够会列出要手动加的几行。
@@ -261,21 +313,23 @@ node ~/.claude/plugins/model-router/ccswitch-caps.js --undo      # 撤回补过�
 **② `provider.js`（只换这一个会话）**：CC Switch 当前卡片不动，可以一边开 Claude 会话、一边开 DeepSeek 会话。在项目目录里：
 
 ```bash
-node ~/.claude/plugins/model-router/provider.js deepseek                         # key 从环境变量 DEEPSEEK_API_KEY 读
-node ~/.claude/plugins/model-router/provider.js deepseek --key-env MY_KEY_VAR   # key 存在别的变量名里
-node ~/.claude/plugins/model-router/provider.js deepseek --dry-run              # 只看会怎么启动（key 打码）
-node ~/.claude/plugins/model-router/provider.js --list                          # 有哪些供应商配置
+node ~/.claude/plugins/model-router/switch/provider.js deepseek                         # key 从环境变量 DEEPSEEK_API_KEY 读
+node ~/.claude/plugins/model-router/switch/provider.js deepseek --key-env MY_KEY_VAR   # key 存在别的变量名里
+node ~/.claude/plugins/model-router/switch/provider.js deepseek --dry-run              # 只看会怎么启动（key 打码）
+node ~/.claude/plugins/model-router/switch/provider.js --list                          # 有哪些供应商配置
 ```
 
 其余参数原样交给 `claude`（如 `--resume`）。它把 `providers/<名字>.json` 的 env 加上 key 写进临时文件，用 `claude --settings` 启动；这个文件的优先级高于用户级 settings.json，只对这个进程生效，会话结束就删。Windows 上刚设的环境变量要新开窗口才进进程，所以它还会去注册表读。加别的供应商就照 `deepseek.json` 再写一份。
 
-**别直接改 `providers/deepseek.json`**：它是安装器管理的文件，升级时会被备份后覆盖。要换映射就复制一份、另起名字再改，`--list` 会列出来。例如想让规划和审查跑 `deepseek-v4-pro`：
+**别直接改 `providers/deepseek.json`**：它是安装器管理的文件，升级时会被备份后覆盖。要换映射就复制一份、另起名字再改，`--list` 会列出来。自建的文件放在 `<插件目录>/switch/providers/`（v2 的 `provider.js` 和 `ccswitch-caps.js` 只读这里；安装器只装 `deepseek.json`，不会碰你自建的文件）。例如想让规划和审查跑 `deepseek-v4-pro`：
 
 ```bash
-cd ~/.claude/plugins/model-router/providers
+cd ~/.claude/plugins/model-router/switch/providers
 cp deepseek.json deepseek-pro.json    # 在 deepseek-pro.json 里把 FABLE、OPUS 两行换成 deepseek-v4-pro[1M]
-node ~/.claude/plugins/model-router/provider.js deepseek-pro
+node ~/.claude/plugins/model-router/switch/provider.js deepseek-pro
 ```
+
+v1.x 时在旧的 `~/.claude/plugins/model-router/providers/` 里自建的 json，升级后要自己挪到 `switch/providers/`（安装器发现旧目录里有清单外的 json 时会提示，但不动它们）。
 
 几处保护：
 

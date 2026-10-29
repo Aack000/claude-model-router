@@ -1,6 +1,7 @@
 # 运行时产物（含个人用量数据，各人生成）
 .last-check.json
 usage-baseline.json
+calibration.jsonl
 
 # /route 流程在项目里生成的工作文件
 .route-*

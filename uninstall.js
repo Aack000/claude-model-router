@@ -49,6 +49,8 @@ if (!fs.existsSync(MANIFEST)) {
   process.exit(1);
 }
 const m = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+/** switch 组件里的 ccswitch-caps.js：装好的副本在 switch/ 下，原地模式（仓库就在插件目录）在 plugins/switch/ 下，v1.x 旧平铺在根 */
+const CAPS_JS = [['switch'], ['plugins', 'switch']].map((d) => path.join(__dirname, ...d, 'ccswitch-caps.js')).find(fs.existsSync);
 
 // 清单里记的是绝对路径。配置目录换过位置（复制一份做第二套配置、改名、搬家）后，旧路径指向的是别的目录，照着删会删到原来那个目录（复审 R1）。
 // 按记下的旧配置目录（旧清单没记 configDir 就从路径反推）把路径换到当前配置目录下；换不了的留原样，删之前还有 inCurrent 把关。和 install.js 同一段
@@ -138,9 +140,10 @@ const kept = [];
 // CC Switch 卡片里补过的能力声明：趁插件文件还在先撤回。要动数据库而 CC Switch 在运行就在这里停下，下面一步都不做
 if (Array.isArray(m.ccswitchCaps) && m.ccswitchCaps.length) {
   if (KEEP_CAPS) say('卡片里补的能力声明留着（--keep-ccswitch-caps）；清单随卸载一起删，以后要去掉就在 CC Switch 的卡片里手动删');
-  else if (!fs.existsSync(path.join(__dirname, 'ccswitch-caps.js'))) say('同目录没有 ccswitch-caps.js（旧安装），跳过撤回；卡片里补的能力声明留着');
+  // v2.0.0 起在 switch 组件里（仓库里是 plugins/switch/），旧安装副本 / 原地模式在 plugins/switch/；v1.x 的旧平铺在插件目录根
+  else if (!CAPS_JS) say('没装 switch 组件（或旧安装没有 ccswitch-caps.js），跳过撤回；卡片里补的能力声明留着');
   else {
-    const r = require(path.join(__dirname, 'ccswitch-caps.js')).undoManifest(m, { dry: DRY, confirm: false, say, retry: '再卸载一次（不想撤回卡片里的能力声明就加 --keep-ccswitch-caps 跳过这一步）' });
+    const r = require(CAPS_JS).undoManifest(m, { dry: DRY, confirm: false, say, retry: '再卸载一次（不想撤回卡片里的能力声明就加 --keep-ccswitch-caps 跳过这一步）' });
     if (r.code) {
       console.error('卸载没有继续：插件文件、命令、放行规则都没动。');
       if (!r.running) console.error(`  不想撤回卡片里的能力声明：手动在 CC Switch 卡片里删掉这几行后，加 --keep-ccswitch-caps 再卸载。\n${cmdWith('--keep-ccswitch-caps')}`);   // 没有 node:sqlite / 读库失败 / 写失败的出口
@@ -166,8 +169,9 @@ for (const f of m.files) {
   if (!DRY) fs.unlinkSync(f.target);
 }
 
-// 插件目录里因此空掉的子目录顺手收掉（只收空的）
-for (const d of ['commands', 'agents', 'docs', 'providers', '.claude-plugin']) {
+// 插件目录里因此空掉的子目录顺手收掉（只收空的）。深的在前：switch/providers 收掉后 switch/ 才可能是空的
+// usage/ 里有用户的 usage-baseline.json / calibration.jsonl 时不空，自然留下
+for (const d of ['commands', 'agents', 'docs', 'providers', 'switch/providers', 'switch', 'usage', '.claude-plugin']) {
   const p = path.join(PLUGIN, d);
   if (fs.existsSync(p) && fs.readdirSync(p).length === 0) { say(`删空目录 ${p}`); if (!DRY) fs.rmdirSync(p); }
 }

@@ -1,0 +1,30 @@
+{
+  "name": "model-router-marketplace",
+  "owner": {
+    "name": "Aack000"
+  },
+  "metadata": {
+    "description": "分阶段模型调控：核心工作流 / 用量统计 / 供应商与 CC Switch 工具",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "model-router",
+      "source": "./",
+      "description": "核心工作流（/model-router:route）",
+      "version": "2.0.0"
+    },
+    {
+      "name": "model-router-usage",
+      "source": "usage",
+      "description": "用量统计",
+      "version": "2.0.0"
+    },
+    {
+      "name": "model-router-switch",
+      "source": "switch",
+      "description": "供应商与 CC Switch 工具",
+      "version": "2.0.0"
+    }
+  ]
+}

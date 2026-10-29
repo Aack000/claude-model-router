@@ -1,0 +1,10 @@
+{
+  "name": "model-router-usage",
+  "displayName": "分阶段模型调控 · 用量统计",
+  "version": "2.0.0",
+  "description": "/route 流程的用量统计：只统计 /route 启动之后的会话，按公开价估算，花费以余额 / 账单校准",
+  "author": {
+    "name": "Aack000"
+  },
+  "license": "MIT"
+}
