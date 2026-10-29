@@ -298,6 +298,8 @@ node ~/.claude/plugins/model-router/usage/usage-balance.js --provider deepseek -
 
 `/route` 按别名派活（规划 fable、审查 opus、实现 sonnet），别名映射到哪个模型由 `ANTHROPIC_DEFAULT_*_MODEL` 决定。所以换供应商只是换一套映射，流程不用改。**目前只实测适配了 DeepSeek**，其他供应商还没适配（`plugins/switch/providers/` 里只有 DeepSeek 一份配置）；用 CC Switch 时，`/route` 按当前卡片的模型映射走。两种用法：
 
+> **换模型 / 换供应商后第一轮会明显变贵**：prompt cache 按模型记，映射一变整段缓存就失效、要全量重写（实测两次分别多花约 $0.3、$0.9），第二轮起回落到正常。看到某一轮 `$/h` 突然翻倍，先确认它是不是切换后的第一轮。
+
 **① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`plugins/switch/providers/deepseek.json`](plugins/switch/providers/deepseek.json) 的 `env`（再加上 key）。
 
 卡片里常漏的是能力声明（`ANTHROPIC_DEFAULT_*_MODEL_SUPPORTED_CAPABILITIES`，见下面实测第 3 条）。可以让安装器补：菜单选 4，或者

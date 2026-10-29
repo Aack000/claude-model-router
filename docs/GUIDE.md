@@ -734,6 +734,7 @@ rm ~/.claude/commands/route.md \
 - **`modelSettings` 的键**走别名规范化，写 `sonnet` / `opus` / `fable` / `haiku` 即可，不必写完整 model ID。
 - **command frontmatter 的 `agent:` 字段**（解析结构里确认存在）也许能直接声明用哪个 agent 跑，未验证。当前靠正文指示，是确定可行的路径。
 - **模型：除 Claude 系外，目前只实测适配了 DeepSeek**，其他供应商还没适配；`/route` 按 CC Switch 当前卡片的模型映射走（做法见 README「换供应商」）。跨宿主（Codex）的调研结论在 [`TECH-LIBRARY.md`](TECH-LIBRARY.md)，09-30 搁置。
+- **切换模型 / 供应商后的第一轮会重建缓存**：prompt cache 按模型绑定，映射一变整段失效、全量重写（测量见上文「为什么 /route 这样设计」第 2 条，单次切换约 13–16 万 token 全额重读）。所以切完那轮 `$/h` 偏高是预期；看 `usage-audit --rounds` 时别把第一轮当成回归。
 - **auto 模式下的放行规则**：`Agent`、`SendMessage` 的 allow 规则会被 CLI 整条摘掉（见 [TECH-LIBRARY §3](TECH-LIBRARY.md)）；若服务端打开 `tengu_ant_yolo_equiv_strip_config`（yolo-equiv，默认关），auto 下连 Bash / PowerShell 的 allow 规则也会一起失效，安装器加的四条规则随之无效。
 - **派子代理（Agent 工具）会被 auto 分类器拦，没有配置能绕开**：实测 10 轮里 Agent 被拦 14 次。改 allow 规则没用（上一条：规则在 auto 下被整条摘掉，根本到不了分类器），`disableAllHooks` 也没用。`/route` 的 **P10 措辞禁区**（prompt 里不写 key / token 的值，不写「隐藏文件」「绕过」「直连库」这类词，凭据只写环境变量名）只能把被拦的概率降下来，免不掉。被拦时按 P10 把原命令或 prompt 原样交给用户放行，**不要换写法重试**——换写法是绕过，也会让分类器更严。要彻底免拦只能临时切出 auto（Shift+Tab）。
 - **原生插件市场（实验性）**：仓库带了 `.claude-plugin/marketplace.json`，`claude plugin marketplace add <仓库目录>` + `claude plugin install model-router@model-router-marketplace` 能装上，但命令前缀变成 `/model-router:route`、放行规则要自己加、`${CLAUDE_PLUGIN_ROOT}` 由 CLI 替换成**源目录**（不是安装后的插件目录）。日常仍推荐安装器（分组件、自动配放行规则和模型设置）。
