@@ -3,3 +3,6 @@
 *.ps1     text eol=crlf
 *.sh      text eol=lf
 *.command text eol=lf
+
+# 命令文件必须保持 LF：T132 按字节数（≤33792）和「行尾无 CRLF」验，Windows 上 autocrlf 会把未钉的 .md 检出成 CRLF
+commands/*.md text eol=lf
