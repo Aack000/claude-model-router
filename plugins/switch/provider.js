@@ -9,7 +9,8 @@
  *   node ~/.claude/plugins/model-router/provider.js --list           列出有哪些供应商配置
  *   --dry-run   只打印会怎么启动（key 打码），不启动
  * 供应商配置在 providers/<名字>.json：env 是套给这个会话的环境变量（别名映射、能力声明…），keyEnv 是默认从哪
- * 可选的 fallbackModel: ["<模型>", …]：原模型不可用（503 / overloaded / 不存在）时 CLI 自动按顺序换，
+ * 可选的 fallbackModel: ["opus", "sonnet"]：原模型不可用（503 / overloaded / 不存在）时 CLI 自动按顺序换，
+ * 写**别名**（由本会话的 ANTHROPIC_DEFAULT_*_MODEL 解析成实际模型，换网关不用改），也可以写网关认识的模型名；
  * 主会话和子代理都生效；必须是数组（字符串会让整份 settings 失效）些环境变量读 key。
  *
  * 原理：claude --settings <文件> 的优先级高于用户级 settings.json，只对这个进程生效，所以能一边开着 CC Switch 当前卡片的会话、

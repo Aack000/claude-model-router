@@ -303,10 +303,12 @@ node ~/.claude/plugins/model-router/usage/usage-balance.js --provider deepseek -
 **模型不可用时自动降级**（`fallbackModel`）：在供应商文件里加一行，主会话和子代理都会生效——原模型 503 / overloaded / 不存在时，CLI 按顺序换下一个：
 
 ```json
-{ "name": "my-relay", "keyEnv": ["MY_KEY"], "fallbackModel": ["glm-5.3", "qwen3.8-max"], "env": { } }
+{ "name": "my-relay", "keyEnv": ["MY_KEY"], "fallbackModel": ["opus", "sonnet"], "env": { } }
 ```
 
-手工启动 `claude` 时也可以用 `--fallback-model glm-5.3,qwen3.8-max`。**必须写成数组**：写成字符串时 CLI 会忽略整份 settings（连 env 里的别名映射一起丢，模型退回内置目录名）。
+**写别名（推荐）**：`opus` / `sonnet` 这些会在当前会话里按 `ANTHROPIC_DEFAULT_*_MODEL` 解析成实际模型（实测：`sonnet` 指向不存在的模型时，子代理落到 opus 映射的 `qwen3.8-max`）。这样换中转站、换用户都不用改这一行；写具体模型名只在网关认识它时才有意义。
+
+手工启动 `claude` 时也可以 `--fallback-model opus,sonnet`。**必须写成数组**：写成字符串时 CLI 会忽略整份 settings（连 env 里的别名映射一起丢，模型退回内置目录名）。
 
 **① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`plugins/switch/providers/deepseek.json`](plugins/switch/providers/deepseek.json) 的 `env`（再加上 key）。
 

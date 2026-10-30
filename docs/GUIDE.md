@@ -734,7 +734,7 @@ rm ~/.claude/commands/route.md \
 - **`modelSettings` 的键**走别名规范化，写 `sonnet` / `opus` / `fable` / `haiku` 即可，不必写完整 model ID。
 - **command frontmatter 的 `agent:` 字段**（解析结构里确认存在）也许能直接声明用哪个 agent 跑，未验证。当前靠正文指示，是确定可行的路径。
 - **模型：除 Claude 系外，目前只实测适配了 DeepSeek**，其他供应商还没适配；`/route` 按 CC Switch 当前卡片的模型映射走（做法见 README「换供应商」）。跨宿主（Codex）的调研结论在 [`TECH-LIBRARY.md`](TECH-LIBRARY.md)，09-30 搁置。
-- **`fallbackModel` 是会话级的，不能按别名分设**：三个别名共用同一个降级列表，所以「fable 挂了降到 qwen」会丢掉「强模型做规划」的语义。另外它**必须是数组**——实测写成字符串时 CLI 忽略整份 settings（env 里的别名映射一起丢，模型退回内置目录名）。
+- **`fallbackModel` 写别名，不写具体模型**：值是别名列表（如 `["opus", "sonnet"]`），在当前会话里按 `ANTHROPIC_DEFAULT_*_MODEL` 解析（实测：`sonnet` 指向不存在的模型时，子代理落到 opus 映射的 `qwen3.8-max`），所以换中转站/换人都不用改这一行。它是**会话级的一个列表，不能给每个别名各配一份**。另外**必须写成数组**——写成字符串时 CLI 忽略整份 settings（env 里的别名映射一起丢，模型退回内置目录名）。
 - **切换模型 / 供应商后的第一轮会重建缓存**：prompt cache 按模型绑定，映射一变整段失效、全量重写（测量见上文「实测得出的结论」第 2 条，单次切换约 13–16 万 token 全额重读）。所以切完那轮 `$/h` 偏高是预期；看 `usage-audit --rounds` 时别把第一轮当成回归。
 - **auto 模式下的放行规则**：`Agent`、`SendMessage` 的 allow 规则会被 CLI 整条摘掉（见 [TECH-LIBRARY §3](TECH-LIBRARY.md)）；若服务端打开 `tengu_ant_yolo_equiv_strip_config`（yolo-equiv，默认关），auto 下连 Bash / PowerShell 的 allow 规则也会一起失效，安装器加的四条规则随之无效。
 - **派子代理（Agent 工具）会被 auto 分类器拦，没有配置能绕开**：实测 10 轮里 Agent 被拦 14 次。改 allow 规则没用（上一条：规则在 auto 下被整条摘掉，根本到不了分类器），`disableAllHooks` 也没用。`/route` 的 **P10 措辞禁区**（prompt 里不写 key / token 的值，不写「隐藏文件」「绕过」「直连库」这类词，凭据只写环境变量名）只能把被拦的概率降下来，免不掉。被拦时按 P10 把原命令或 prompt 原样交给用户放行，**不要换写法重试**——换写法是绕过，也会让分类器更严。要彻底免拦只能临时切出 auto（Shift+Tab）。
