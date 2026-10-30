@@ -8,7 +8,9 @@
  *   node ~/.claude/plugins/model-router/provider.js deepseek --key-env DEEPSEEK_KEY --resume
  *   node ~/.claude/plugins/model-router/provider.js --list           列出有哪些供应商配置
  *   --dry-run   只打印会怎么启动（key 打码），不启动
- * 供应商配置在 providers/<名字>.json：env 是套给这个会话的环境变量（别名映射、能力声明…），keyEnv 是默认从哪些环境变量读 key。
+ * 供应商配置在 providers/<名字>.json：env 是套给这个会话的环境变量（别名映射、能力声明…），keyEnv 是默认从哪
+ * 可选的 fallbackModel: ["<模型>", …]：原模型不可用（503 / overloaded / 不存在）时 CLI 自动按顺序换，
+ * 主会话和子代理都生效；必须是数组（字符串会让整份 settings 失效）些环境变量读 key。
  *
  * 原理：claude --settings <文件> 的优先级高于用户级 settings.json，只对这个进程生效，所以能一边开着 CC Switch 当前卡片的会话、
  * 一边开一个 DeepSeek 会话。/route 按别名派活，换了映射就自动换模型；route-check 读会话环境，核对的也是这份映射。
@@ -187,6 +189,12 @@ function main() {
     console.log(`${mm.from} 是 "${maskArn(mm.spec)}"（完整模型 ID，不是别名），${cfg.name || name} 不一定认它、认了也可能按最贵的模型计费，这个会话的主模型改用 ${maskArn(override.to)}（想自己指定：透传 --model <别名或 ${cfg.name || name} 的模型 ID>）`);
   }
 
+  // 模型不可用（503 / overloaded / 模型不存在）时自动降级：设到临时 settings 的顶层。
+  // 注意 CLI 只认数组，写成字符串会让**整份 settings 失效**（env 里的映射也跟着丢）
+  const fb = (Array.isArray(cfg.fallbackModel) ? cfg.fallbackModel : [cfg.fallbackModel])
+    .map((x) => String(x || '').trim()).filter(Boolean);
+  const settingsBody = fb.length ? { fallbackModel: fb, env } : { env };
+
   const mask = (o) => JSON.stringify(o, (k, v) => (typeof v === 'string' ? (v === key ? `<key，来自 ${from}，长度 ${key.length}>` : maskArn(v)) : v), 2);
   const tmp = path.join(os.tmpdir(), `model-router-${name}-${process.pid}.json`);
   const args = ['--settings', tmp, ...pass];
@@ -206,7 +214,7 @@ function main() {
   const cmdline = isWin ? winCommandLine(args) : null;
 
   if (dry) {
-    console.log(`[试运行] 会写 ${tmp}：\n${mask({ env })}\n[试运行] 然后在 ${process.cwd()} 里启动：${maskArn(isWin ? cmdline : `claude ${args.join(' ')}`)}\n[试运行] 会话结束后删掉这个文件`);
+    console.log(`[试运行] 会写 ${tmp}：\n${mask(settingsBody)}\n[试运行] 然后在 ${process.cwd()} 里启动：${maskArn(isWin ? cmdline : `claude ${args.join(' ')}`)}\n[试运行] 会话结束后删掉这个文件`);
     process.exit(0);
   }
 
@@ -219,7 +227,7 @@ function main() {
     if (!alive) try { fs.unlinkSync(path.join(os.tmpdir(), n)); } catch { /* 删不掉下次再说 */ }
   }
 
-  fs.writeFileSync(tmp, JSON.stringify({ env }), { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify(settingsBody), { mode: 0o600 });
   const cleanup = () => { try { fs.unlinkSync(tmp); } catch { /* 已经删了 */ } };
   process.on('exit', cleanup);
   // Ctrl+C 交给 claude 自己处理（它用来打断当前回合），这里只等它退出再删文件

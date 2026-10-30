@@ -1,7 +1,7 @@
 {
   "name": "model-router-switch",
   "displayName": "分阶段模型调控 · 供应商与 CC Switch 工具",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "第三方供应商适配（provider）与 CC Switch 能力探测（ccswitch-caps）",
   "author": {
     "name": "Aack000"

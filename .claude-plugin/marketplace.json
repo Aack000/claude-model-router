@@ -12,19 +12,19 @@
       "name": "model-router",
       "source": "./",
       "description": "核心工作流（/model-router:route）",
-      "version": "2.0.2"
+      "version": "2.0.3"
     },
     {
       "name": "model-router-usage",
       "source": "usage",
       "description": "用量统计",
-      "version": "2.0.2"
+      "version": "2.0.3"
     },
     {
       "name": "model-router-switch",
       "source": "switch",
       "description": "供应商与 CC Switch 工具",
-      "version": "2.0.2"
+      "version": "2.0.3"
     }
   ]
 }

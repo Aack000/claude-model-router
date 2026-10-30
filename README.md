@@ -4,7 +4,7 @@
 
 # claude-model-router
 
-[![version](https://img.shields.io/badge/version-v2.0.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v2.0.3-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933)](https://nodejs.org)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#安装)
@@ -299,6 +299,14 @@ node ~/.claude/plugins/model-router/usage/usage-balance.js --provider deepseek -
 `/route` 按别名派活（规划 fable、审查 opus、实现 sonnet），别名映射到哪个模型由 `ANTHROPIC_DEFAULT_*_MODEL` 决定。所以换供应商只是换一套映射，流程不用改。**目前只实测适配了 DeepSeek**，其他供应商还没适配（`plugins/switch/providers/` 里只有 DeepSeek 一份配置）；用 CC Switch 时，`/route` 按当前卡片的模型映射走。两种用法：
 
 > **换模型 / 换供应商后第一轮会明显变贵**：prompt cache 按模型记，映射一变整段缓存就失效、要全量重写（实测两次分别多花约 $0.3、$0.9），第二轮起回落到正常。看到某一轮 `$/h` 突然翻倍，先确认它是不是切换后的第一轮。
+
+**模型不可用时自动降级**（`fallbackModel`）：在供应商文件里加一行，主会话和子代理都会生效——原模型 503 / overloaded / 不存在时，CLI 按顺序换下一个：
+
+```json
+{ "name": "my-relay", "keyEnv": ["MY_KEY"], "fallbackModel": ["glm-5.3", "qwen3.8-max"], "env": { } }
+```
+
+手工启动 `claude` 时也可以用 `--fallback-model glm-5.3,qwen3.8-max`。**必须写成数组**：写成字符串时 CLI 会忽略整份 settings（连 env 里的别名映射一起丢，模型退回内置目录名）。
 
 **① CC Switch 卡片（全局切换）**：卡片的 env 写 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和四个别名的映射，切卡后所有新会话都用它。内容可以照抄 [`plugins/switch/providers/deepseek.json`](plugins/switch/providers/deepseek.json) 的 `env`（再加上 key）。
 
