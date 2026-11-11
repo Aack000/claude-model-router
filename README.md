@@ -381,7 +381,12 @@ DeepSeek 10-26 实测：
 
 1. **同供应商多模型分工（已可用）**：四个模型别名经 `ANTHROPIC_DEFAULT_*_MODEL` / CC Switch 卡片 / `provider.js` 映射，换成哪家供应商、映射到哪几个模型，流程不用改；核对、体检、计费工具已能认第三方模型（DeepSeek 10-26 实测，见上面「换供应商」）
 2. **跨供应商分流（可行度：中，待实测）**：机制上有两条路——网关按模型名分流，或经 ACP（acpx）做进程级编排。已知各家兼容端点的坑（拒收中间 `role:system`、`tool_choice`、WebSearch 仅官方等）已调研归档在 [TECH-LIBRARY](docs/TECH-LIBRARY.md)。第一步是加一个**异家族审查员**并行试点（只读代码只写报告，模型不行最坏是报告没用），验证非 Claude 模型能否守住收工条款和报告格式
-3. **多 CLI 版本（可行度：低，观望）**：被上游硬阻塞——Codex 子代理只能沿用主会话同一供应商（openai/codex#47752）、Windows 上子代理配置不生效（openai/codex#19399）；dsh 处于开发者预览、声明有破坏性变更。这些修复前不投入；届时也在本仓库内演进，不拆多仓库
+3. **多 CLI 版本（可行度：低，观望）**：被上游硬阻塞——Codex 子代理只能沿用主会话同一供应商（openai/codex#47752）、Windows 上子代理配置不生效（openai/codex#19399）；dsh 处于开发者预览、声明有破坏性变更。这些修复前不投入；届时也在本仓库内演进，不拆多仓库。**dsh 是目前的例外**：那边是插件形态（`dmr.json` + 详情页面板 + 会话日志计价），已单独成仓——[deepseek-model-router](https://github.com/Aack000/deepseek-model-router)，与本项目互为姊妹项目
+
+## 姊妹项目
+
+- [deepseek-model-router](https://github.com/Aack000/deepseek-model-router)（DMR）—— 同一套「规划 / 实现 / 审查」分阶段路由的 **DeepSeek Harness** 版本。模型不写进插件，改由 `$DSH_HOME/dmr.json` 决定（每次派活重读），还带一个按子会话日志核对**实际**模型与花费的详情页面板。
+- 两边共享的是问题与判断尺度（什么时候该派子代理、什么时候主会话直接做更划算），不是代码：CMR 改的是 `settings.json` 和 CC Switch 的映射，DMR 读的是 DSH 的多帧 zstd 会话日志、算的是分时价格。要移植照思路，不照文件。
 
 ## 文档
 
