@@ -33,6 +33,7 @@ const portAt = argv.indexOf('--port');
 const PORT = portAt >= 0 ? Number(argv[portAt + 1]) : 0;
 const NO_OPEN = argv.includes('--no-open');
 const TOKEN = crypto.randomBytes(18).toString('hex');
+let installing = false;
 
 const readJson = (p) => {
   try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')); } catch { return null; }
@@ -141,7 +142,11 @@ async function buildStatus() {
     active: allow.some((r) => typeof r === 'string' && r.includes(RULE_SCRIPTS[id])),
   }));
 
-  const components = Array.isArray(manifest?.components) ? manifest.components : [];
+  const rawComponents = Array.isArray(manifest?.components) ? manifest.components : null;
+  // v1.x 清单没有 components 字段：安装器会按“全部已装”处理，面板必须回填同样的语义，
+  // 否则管理区默认全不勾，一点 APPLY 就会把旧组件和规则删掉。
+  const components = manifest ? (rawComponents || ['core', 'usage', 'switch']) : [];
+  const legacy = Boolean(manifest) && !rawComponents;
 
   return {
     installed: Boolean(manifest),
@@ -150,6 +155,7 @@ async function buildStatus() {
     configDir: short(CLAUDE),
     pluginDir: short(PLUGIN),
     components,
+    legacy,
     componentFiles: {
       core: files.filter((f) => f.kind === 'plugin').length,
       usage: files.filter((f) => /[\\/]usage[\\/]/.test(f.target)).length,
@@ -165,6 +171,7 @@ async function buildStatus() {
     files: {
       total: files.length,
       ok: files.filter((f) => f.state === 'ok').length,
+      issuesTotal: files.filter((f) => f.state !== 'ok').length,
       issues: files.filter((f) => f.state !== 'ok').slice(0, 12),
     },
     uiGuard: uiGuardStatus(),
@@ -223,7 +230,19 @@ const STATIC = {
   '/opening.gif': ['ui/opening.gif', 'image/gif'],
 };
 
+/** 只接受回环 Host，挡住 DNS rebinding 读走本机路径信息 */
+function hostAllowed(req) {
+  const port = server.address()?.port;
+  const host = String(req.headers.host || '').toLowerCase();
+  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+}
+
 const server = http.createServer(async (req, res) => {
+  if (!hostAllowed(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('forbidden host');
+    return;
+  }
   let pathname = '/';
   try { pathname = new URL(req.url, 'http://127.0.0.1').pathname; } catch { /* 默认路径 */ }
 
@@ -257,6 +276,12 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'forbidden' }));
       return;
     }
+    if (installing) {
+      res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'another install is already running' }));
+      return;
+    }
+    installing = true;
     try {
       const body = JSON.parse(await readBody(req));
       const components = Array.isArray(body.components) ? body.components : ['core'];
@@ -267,6 +292,8 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: String((err && err.message) || err) }));
+    } finally {
+      installing = false;
     }
     return;
   }

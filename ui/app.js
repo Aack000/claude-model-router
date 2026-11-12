@@ -9,6 +9,10 @@ if (urlToken) {
   history.replaceState(null, '', location.pathname);
 }
 const token = sessionStorage.getItem('ui-token') || '';
+if (!token) {
+  $('token-banner').hidden = false;
+  $('apply').disabled = true;
+}
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -53,6 +57,9 @@ function setupIntro() {
     intro.remove();
     return;
   }
+  const app = document.querySelector('.app');
+  if (app) app.inert = true; // 开场期间键盘不能穿到背景
+
   const duration = 2800;
   const steps = [
     [0, 'BOOT SEQUENCE'],
@@ -65,6 +72,8 @@ function setupIntro() {
   const bar = $('intro-bar');
   const pct = $('intro-pct');
   const step = $('intro-step');
+  const gif = intro.querySelector('.intro-gif');
+  if (gif && gif.dataset.src) gif.src = gif.dataset.src;
   let finished = false;
 
   const finish = () => {
@@ -72,6 +81,7 @@ function setupIntro() {
     finished = true;
     clearInterval(timer);
     intro.classList.add('done');
+    if (app) app.inert = false;
     sessionStorage.setItem('intro-done', '1');
     setTimeout(() => intro.remove(), 750);
   };
@@ -79,7 +89,7 @@ function setupIntro() {
   const timer = setInterval(() => {
     const t = Math.min(1, (performance.now() - started) / duration);
     const value = Math.round(t * 100);
-    bar.style.width = `${value}%`;
+    bar.style.transform = `scaleX(${t})`;
     pct.textContent = String(value).padStart(3, '0');
     const current = steps.filter(([at]) => value >= at).pop();
     if (current) step.textContent = current[1];
@@ -155,6 +165,7 @@ function renderUiGuard(ug) {
 
 function renderFiles(data) {
   const ratio = data.files.total > 0 ? data.files.ok / data.files.total : 0;
+  const total = data.files.issuesTotal ?? data.files.issues.length;
   $('files-ratio').textContent = `${data.files.ok}/${data.files.total} FILES`;
   $('files-bar').style.width = `${Math.round(ratio * 100)}%`;
 
@@ -164,7 +175,7 @@ function renderFiles(data) {
     list.append(node('li', 'empty', '没有安装清单，先运行安装器。'));
     return;
   }
-  if (data.files.issues.length === 0) {
+  if (total === 0) {
     list.append(node('li', 'empty', '清单中的文件全部与安装记录一致。'));
     return;
   }
@@ -177,7 +188,9 @@ function renderFiles(data) {
     );
     list.append(li);
   }
-  if (data.files.issues.length === 12) list.append(node('li', 'empty', '仅显示前 12 条。'));
+  if (total > data.files.issues.length) {
+    list.append(node('li', 'empty', `还有 ${total - data.files.issues.length} 条未显示。`));
+  }
 }
 
 function renderRules(rules) {
@@ -202,15 +215,19 @@ function renderDoctor(doctor) {
 
 /* ---------- manage ---------- */
 let current = null;
+let dirty = false;
+let running = false;
 
 function initManage(data) {
   current = data;
-  for (const input of document.querySelectorAll('[data-group="components"]')) {
-    input.checked = data.components.includes(input.value);
-  }
-  for (const input of document.querySelectorAll('[data-group="rules"]')) {
-    const active = data.rules.find((r) => r.id === input.value)?.active;
-    input.checked = Boolean(active);
+  if (!dirty) {
+    for (const input of document.querySelectorAll('[data-group="components"]')) {
+      input.checked = data.components.includes(input.value);
+    }
+    for (const input of document.querySelectorAll('[data-group="rules"]')) {
+      const active = data.rules.find((r) => r.id === input.value)?.active;
+      input.checked = Boolean(active);
+    }
   }
   syncDependencies();
 }
@@ -219,16 +236,16 @@ function syncDependencies() {
   const usage = document.querySelector('[data-group="components"][value="usage"]');
   const audit = document.querySelector('[data-group="rules"][value="audit"]');
   if (!usage || !audit) return;
-  if (audit.checked && !usage.checked) usage.checked = true;
+  // usage 是 audit 的前提：只置灰，不改用户的选择；提交时再剔除无法应用的规则。
   audit.disabled = !usage.checked;
-  if (audit.disabled) audit.checked = false;
 }
 
 function selected() {
   const components = [...document.querySelectorAll('[data-group="components"]')]
     .filter((i) => i.checked).map((i) => i.value);
-  const rules = [...document.querySelectorAll('[data-group="rules"]')]
+  let rules = [...document.querySelectorAll('[data-group="rules"]')]
     .filter((i) => i.checked).map((i) => i.value);
+  if (!components.includes('usage')) rules = rules.filter((r) => r !== 'audit');
   return { components, rules };
 }
 
@@ -237,7 +254,14 @@ const dialogLog = $('dialog-log');
 const confirmButton = $('dialog-confirm');
 
 function openDialog() {
-  if (!current) return;
+  if (running) {
+    toast('安装器正在运行，请等它结束');
+    return;
+  }
+  if (!current) {
+    toast('数据还没加载完成，先点 REFRESH');
+    return;
+  }
   const { components, rules } = selected();
   const summary = $('dialog-summary');
   summary.replaceChildren();
@@ -259,6 +283,7 @@ function openDialog() {
 
 async function applyChanges() {
   const { components, rules } = selected();
+  running = true;
   confirmButton.disabled = true;
   confirmButton.textContent = '正在运行…';
   dialogLog.hidden = false;
@@ -269,28 +294,69 @@ async function applyChanges() {
       headers: { 'content-type': 'application/json', 'x-ui-token': token },
       body: JSON.stringify({ components, rules }),
     });
+    if (res.status === 403) throw new Error('写操作令牌失效：请从终端里带 token 的链接重新打开面板');
+    if (res.status === 409) throw new Error('另一个安装器正在运行，请等它结束');
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    dialogLog.textContent = data.output || '（无输出）';
-    dialogLog.scrollTop = dialogLog.scrollHeight;
     if (data.ok) {
+      dirty = false;
+      dialogLog.textContent = `✓ 安装完成\n\n${data.output || '（无输出）'}`;
+      dialogLog.scrollTop = 0;
+      confirmButton.disabled = false;
       confirmButton.textContent = '完成';
       toast('安装器已完成');
       await load();
     } else {
+      dialogLog.textContent = `✗ 安装器退出码 ${data.code}\n\n${data.output || '（无输出）'}`;
       confirmButton.disabled = false;
       confirmButton.textContent = '重试';
       toast(`安装器退出码 ${data.code}`);
     }
   } catch (err) {
-    dialogLog.textContent = `失败：${err.message}`;
+    dialogLog.textContent = `✗ ${err.message}`;
     confirmButton.disabled = false;
     confirmButton.textContent = '重试';
     toast('写操作失败');
+  } finally {
+    running = false;
   }
 }
 
 /* ---------- main ---------- */
+function renderError(message) {
+  const hud = $('hud-status');
+  hud.textContent = 'ERROR';
+  hud.className = 'hud-tag err';
+  const rail = $('rail-status');
+  rail.textContent = 'ERROR';
+  rail.className = '';
+  setHealth('err', '读取失败');
+
+  for (const id of ['stat-install', 'stat-doctor', 'stat-components', 'stat-files']) {
+    $(id).textContent = '—';
+    $(id).className = 'stat-value';
+  }
+  for (const id of ['stat-install-hint', 'stat-doctor-hint', 'stat-components-hint', 'stat-files-hint']) {
+    $(id).textContent = '读取失败';
+  }
+  setRing(0);
+  $('ring-val').style.stroke = 'var(--amber)';
+  $('ring-meta').textContent = '—';
+  $('routing-body').replaceChildren(node('div', 'empty', message));
+  $('components-body').replaceChildren();
+  $('components-meta').replaceChildren();
+  $('ug-status').replaceChildren(node('span', 'dot err'), node('span', '', '读取失败'));
+  $('ug-meta').replaceChildren();
+  $('files-issues').replaceChildren(node('li', 'empty', message));
+  $('files-ratio').textContent = '—';
+  $('files-bar').style.width = '0';
+  $('rules-body').replaceChildren(node('li', 'empty', message));
+  $('doctor-body').textContent = message;
+  $('legacy-note').hidden = true;
+  $('generated').textContent = '读取失败';
+  dirty = false;
+}
+
 function render(data) {
   $('version').textContent = data.version ? `v${data.version}` : 'v—';
   $('config-dir').textContent = data.configDir;
@@ -304,22 +370,36 @@ function render(data) {
   else setHealth('warn', '体检有提示');
 
   const healthy = data.doctor.ok && !data.doctor.timedOut && !doctorWarn;
-  $('hud-status').textContent = !data.installed ? 'OFFLINE' : healthy ? 'ONLINE' : 'DEGRADED';
+  const hud = $('hud-status');
+  hud.textContent = !data.installed ? 'OFFLINE' : healthy ? 'ONLINE' : 'DEGRADED';
+  hud.className = `hud-tag ${!data.installed ? 'err' : healthy ? 'ok' : 'warn'}`;
+  const rail = $('rail-status');
+  rail.textContent = !data.installed ? 'OFFLINE' : healthy ? 'ONLINE' : 'DEGRADED';
+  rail.className = healthy ? 'green' : '';
+
+  $('legacy-note').hidden = !data.legacy;
+
+  const setHint = (id, text) => {
+    const el = $(id);
+    el.textContent = text;
+    el.title = text; // 省略号截断时仍能看到全文
+  };
 
   $('stat-install').textContent = data.installed ? '已安装' : '未安装';
   $('stat-install').className = `stat-value ${data.installed ? 'tone-ok' : 'tone-warn'}`;
-  $('stat-install-hint').textContent = data.installedAt ? `更新于 ${fmtTime(data.installedAt)}` : '运行安装器后显示';
+  setHint('stat-install-hint', data.installedAt ? `更新于 ${fmtTime(data.installedAt)}` : '运行安装器后显示');
 
   $('stat-doctor').textContent = data.doctor.timedOut ? '超时' : healthy ? '通过' : '有提示';
   $('stat-doctor').className = `stat-value ${healthy ? 'tone-ok' : 'tone-warn'}`;
-  $('stat-doctor-hint').textContent = `doctor --quick · ${data.doctor.durationMs}ms`;
+  setHint('stat-doctor-hint', `doctor --quick · ${data.doctor.durationMs}ms`);
 
   $('stat-components').textContent = data.components.length ? `${data.components.length} 个` : '—';
-  $('stat-components-hint').textContent = data.components.length ? data.components.join(' · ') : '未安装';
+  setHint('stat-components-hint', data.components.length ? data.components.join(' · ') : '未安装');
 
+  const issuesTotal = data.files.issuesTotal ?? data.files.issues.length;
   $('stat-files').textContent = data.files.total ? `${data.files.ok}/${data.files.total}` : '—';
-  $('stat-files').className = `stat-value ${data.files.total && data.files.issues.length ? 'tone-warn' : ''}`;
-  $('stat-files-hint').textContent = data.files.issues.length ? `${data.files.issues.length} 个异常` : '全部一致';
+  $('stat-files').className = `stat-value ${data.files.total && issuesTotal ? 'tone-warn' : ''}`;
+  setHint('stat-files-hint', issuesTotal ? `${issuesTotal} 个异常` : '全部一致');
 
   setRing(data.files.total ? data.files.ok / data.files.total : 0);
   $('ring-val').style.stroke = healthy ? '' : 'var(--amber)';
@@ -347,7 +427,7 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     render(await res.json());
   } catch (err) {
-    setHealth('err', '读取失败');
+    renderError(`读取失败（${err.message}），点 REFRESH 重试。`);
     toast(`读取失败：${err.message}`);
   } finally {
     button.disabled = false;
@@ -373,18 +453,34 @@ document.querySelectorAll('.copy').forEach((button) => {
   });
 });
 
-for (const input of document.querySelectorAll('[data-group="components"]')) {
-  input.addEventListener('change', syncDependencies);
+for (const input of document.querySelectorAll('[data-group]')) {
+  input.addEventListener('change', () => {
+    dirty = true;
+    if (input.dataset.group === 'components') syncDependencies();
+  });
 }
 
 $('refresh').addEventListener('click', load);
 $('apply').addEventListener('click', openDialog);
-$('dialog-cancel').addEventListener('click', () => dialog.close());
+$('dialog-cancel').addEventListener('click', () => {
+  if (running) {
+    toast('安装器正在运行，请等它结束');
+    return;
+  }
+  dialog.close();
+});
+dialog.addEventListener('cancel', (e) => {
+  if (running) {
+    e.preventDefault();
+    toast('安装器正在运行，请等它结束');
+  }
+});
 confirmButton.addEventListener('click', () => {
   if (confirmButton.textContent === '完成') {
     dialog.close();
     return;
   }
+  if (running) return;
   applyChanges();
 });
 
