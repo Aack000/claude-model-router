@@ -3,238 +3,278 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>model-router · 控制面板</title>
+<title>MODEL-ROUTER // CONTROL SURFACE</title>
 <link rel="stylesheet" href="/style.css">
+<script>
+  try {
+    const p = new URLSearchParams(location.search);
+    if (p.get('intro') === '0' || sessionStorage.getItem('intro-done') === '1') {
+      document.documentElement.classList.add('no-intro');
+    }
+  } catch (e) { /* ignore */ }
+</script>
 </head>
 <body>
-<div class="ambient" aria-hidden="true"></div>
+<div class="grid-bg" aria-hidden="true"></div>
+<div class="scanline" aria-hidden="true"></div>
+
 <div class="app">
-  <aside class="sidebar">
+  <aside class="rail">
     <div class="brand">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M8 24 16 8" stroke="var(--violet)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M15 24 23 8" stroke="var(--cyan)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M22 24 30 8" stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"/>
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 3.5 34 11.4v17.2L20 36.5 6 28.6V11.4L20 3.5Z" fill="none" stroke="var(--green)" stroke-width="1"/>
+        <path d="M13 27.5 20 12.5M19.5 27.5 26.5 12.5M26 27.5 33 12.5" stroke="var(--text)" stroke-width="1.4" stroke-linecap="square"/>
       </svg>
       <div class="brand-text">
-        <strong>model-router</strong>
-        <span>LOCAL CONSOLE</span>
+        <strong>MODEL-ROUTER</strong>
+        <span>RHINE LAB / RL-07</span>
       </div>
     </div>
 
     <nav class="nav" aria-label="页面导航">
-      <a class="nav-link active" href="#overview">概览</a>
-      <a class="nav-link" href="#routing">阶段路由</a>
-      <a class="nav-link" href="#components">组件</a>
-      <a class="nav-link" href="#files">文件健康</a>
-      <a class="nav-link" href="#rules">放行规则</a>
-      <a class="nav-link" href="#uiguard">布局验收</a>
-      <a class="nav-link" href="#manage">组件与规则</a>
-      <a class="nav-link" href="#doctor">快速体检</a>
+      <a class="nav-item active" href="#overview"><em>01</em><span>概览</span></a>
+      <a class="nav-item" href="#routing"><em>02</em><span>阶段路由</span></a>
+      <a class="nav-item" href="#components"><em>03</em><span>组件</span></a>
+      <a class="nav-item" href="#files"><em>04</em><span>文件健康</span></a>
+      <a class="nav-item" href="#rules"><em>05</em><span>放行规则</span></a>
+      <a class="nav-item" href="#uiguard"><em>06</em><span>布局验收</span></a>
+      <a class="nav-item" href="#manage"><em>07</em><span>组件与规则</span></a>
+      <a class="nav-item" href="#doctor"><em>08</em><span>快速体检</span></a>
     </nav>
 
-    <div class="side-foot">
-      <div class="side-note">
-        <span class="dot ok" aria-hidden="true"></span>
-        <div>
-          <strong>本机回环</strong>
-          <span>只监听 127.0.0.1，写操作需页面 token</span>
-        </div>
-      </div>
-      <p class="build" id="build">v— · —</p>
+    <div class="rail-foot">
+      <div class="rail-row"><span>STATUS</span><b class="green">ONLINE</b></div>
+      <div class="rail-row"><span>SCOPE</span><b>LOCAL / 127.0.0.1</b></div>
+      <div class="rail-row"><span>BUILD</span><b id="build">v—</b></div>
+      <div class="quit">按 <kbd>Q</kbd> 退出服务</div>
     </div>
   </aside>
 
-  <div class="shell">
-    <header class="topbar">
-      <div class="breadcrumb">控制台 <span class="sep">/</span> <span class="pill" id="version">v—</span></div>
-      <div class="top-actions">
-        <span class="config-dir" id="config-dir" title="配置目录">—</span>
-        <button type="button" class="btn-refresh" id="refresh" aria-label="刷新状态">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V6H10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span>刷新</span>
-        </button>
+  <div class="stage">
+    <header class="hud">
+      <div class="hud-brand">MODEL-ROUTER <span class="sep">//</span> CONTROL SURFACE</div>
+      <div class="hud-right">
+        <span class="hud-tag" id="hud-status">STANDBY</span>
+        <span class="hud-id" id="version">v—</span>
+        <span class="hud-path" id="config-dir" title="配置目录">—</span>
+        <button type="button" class="btn-square" id="refresh">REFRESH</button>
       </div>
     </header>
 
     <main id="overview">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">运行状态</p>
-          <h1>三阶段模型路由</h1>
-          <p class="hero-sub">安装、路由与体检结果 · <span id="generated">正在读取…</span></p>
+          <div class="eyebrow"><i class="tick"></i> RHINE LAB / ROUTING CONSOLE <span class="seq">#02-07</span></div>
+          <h1>三阶段<br>模型路由</h1>
+          <p class="hero-sub">规划 → 实现 → 审查。按阶段分配模型，数据取自本机安装清单与设置。<span id="generated">正在读取…</span></p>
+          <div class="health" id="health" aria-live="polite">
+            <span class="dot idle" aria-hidden="true"></span>
+            <span class="health-text">检查中</span>
+          </div>
         </div>
-        <div class="hero-side">
+
+        <div class="hero-ring">
+          <div class="ring-head"><span>FILE INTEGRITY</span><span>SEC-02</span></div>
           <div class="ring-wrap">
-            <svg class="ring" viewBox="0 0 132 132" aria-hidden="true">
+            <svg class="ring" viewBox="0 0 160 160" aria-hidden="true">
               <defs>
                 <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="var(--cyan)"/>
-                  <stop offset="1" stop-color="var(--violet)"/>
+                  <stop offset="0" stop-color="#d8ff8a"/>
+                  <stop offset="1" stop-color="#5ce1b0"/>
                 </linearGradient>
               </defs>
-              <circle class="ring-bg" cx="66" cy="66" r="56"/>
-              <circle class="ring-val" id="ring-val" cx="66" cy="66" r="56"/>
+              <circle class="ring-track" cx="80" cy="80" r="64"/>
+              <circle class="ring-val" id="ring-val" cx="80" cy="80" r="64"/>
             </svg>
             <div class="ring-center">
               <strong id="ring-num">—</strong>
               <span>文件完好</span>
             </div>
           </div>
-          <div class="health" id="health" aria-live="polite">
-            <span class="dot idle" aria-hidden="true"></span>
-            <span class="health-text">检查中</span>
-          </div>
+          <div class="ring-foot"><span>MANIFEST CHECKSUM</span><span id="ring-meta">—</span></div>
         </div>
       </section>
 
       <section class="stats" aria-label="概览数据">
         <article class="stat">
-          <div class="stat-top">
-            <span class="stat-label">安装状态</span>
-            <svg class="stat-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5.5 8 2l5.5 3.5v5L8 14l-5.5-3.5v-5Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 5.5 8 9l5.5-3.5M8 9v5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-          </div>
+          <div class="stat-top"><span class="idx">01</span><span class="stat-label">INSTALL</span></div>
           <strong class="stat-value" id="stat-install">—</strong>
           <span class="stat-hint" id="stat-install-hint">读取安装清单</span>
         </article>
         <article class="stat">
-          <div class="stat-top">
-            <span class="stat-label">快速体检</span>
-            <svg class="stat-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8h3l1.5-4 3 8 1.5-4h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
+          <div class="stat-top"><span class="idx">02</span><span class="stat-label">DIAGNOSTICS</span></div>
           <strong class="stat-value" id="stat-doctor">—</strong>
           <span class="stat-hint" id="stat-doctor-hint">doctor --quick</span>
         </article>
         <article class="stat">
-          <div class="stat-top">
-            <span class="stat-label">组件</span>
-            <svg class="stat-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m8 1.8 5.5 3-5.5 3-5.5-3 5.5-3Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m2.5 8 5.5 3 5.5-3M2.5 11.2l5.5 3 5.5-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
-          </div>
+          <div class="stat-top"><span class="idx">03</span><span class="stat-label">COMPONENTS</span></div>
           <strong class="stat-value" id="stat-components">—</strong>
           <span class="stat-hint" id="stat-components-hint">core / usage / switch</span>
         </article>
         <article class="stat">
-          <div class="stat-top">
-            <span class="stat-label">文件完好</span>
-            <svg class="stat-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m5.3 8.2 1.8 1.8 3.6-3.9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
+          <div class="stat-top"><span class="idx">04</span><span class="stat-label">INTEGRITY</span></div>
           <strong class="stat-value" id="stat-files">—</strong>
           <span class="stat-hint" id="stat-files-hint">清单核对</span>
         </article>
       </section>
 
-      <div class="grid">
-        <section class="card span-2" id="routing" aria-labelledby="routing-title">
-          <div class="card-head">
+      <div class="sections">
+        <section class="block span-2" id="routing" aria-labelledby="routing-title">
+          <header class="block-head">
+            <span class="idx">02</span>
             <h2 id="routing-title">阶段路由</h2>
-            <span class="card-note">别名 → 实际模型</span>
+            <span class="block-note">ALIAS → MODEL</span>
+          </header>
+          <div class="block-body">
+            <div class="routing-table" id="routing-body">
+              <div class="route-row skeleton"></div>
+              <div class="route-row skeleton"></div>
+              <div class="route-row skeleton"></div>
+            </div>
+            <p class="footnote">映射来自 settings.json 的 <code>ANTHROPIC_DEFAULT_*_MODEL</code>；未映射的别名会让对应阶段调用失败。</p>
           </div>
-          <div class="routing-table" id="routing-body">
-            <div class="route-row skeleton"></div>
-            <div class="route-row skeleton"></div>
-            <div class="route-row skeleton"></div>
-          </div>
-          <p class="footnote">映射来自 settings.json 的 <code>ANTHROPIC_DEFAULT_*_MODEL</code>；未映射的别名会让对应阶段调用失败。</p>
         </section>
 
-        <section class="card" id="commands" aria-labelledby="commands-title">
-          <div class="card-head">
+        <section class="block" id="commands" aria-labelledby="commands-title">
+          <header class="block-head">
+            <span class="idx">03</span>
             <h2 id="commands-title">命令速查</h2>
-            <span class="card-note">点击复制</span>
+            <span class="block-note">CLICK TO COPY</span>
+          </header>
+          <div class="block-body">
+            <ul class="cmd-list">
+              <li>
+                <div class="cmd-main"><code>/route</code><span>规划 → 实现 → 审查</span></div>
+                <button type="button" class="copy" data-copy="/route " aria-label="复制 /route 命令">COPY</button>
+              </li>
+              <li>
+                <div class="cmd-main"><code>/ui-check</code><span>前端布局验收</span></div>
+                <button type="button" class="copy" data-copy="/ui-check " aria-label="复制 /ui-check 命令">COPY</button>
+              </li>
+              <li>
+                <div class="cmd-main"><code>node ui-server.js</code><span>启动本面板</span></div>
+                <button type="button" class="copy" data-copy="node ui-server.js" aria-label="复制启动命令">COPY</button>
+              </li>
+            </ul>
           </div>
-          <ul class="cmd-list" id="commands-body">
-            <li>
-              <div class="cmd-main"><code>/route</code><span>规划 → 实现 → 审查</span></div>
-              <button type="button" class="copy" data-copy="/route " aria-label="复制 /route 命令">复制</button>
-            </li>
-            <li>
-              <div class="cmd-main"><code>/ui-check</code><span>前端布局验收</span></div>
-              <button type="button" class="copy" data-copy="/ui-check " aria-label="复制 /ui-check 命令">复制</button>
-            </li>
-            <li>
-              <div class="cmd-main"><code>node ui-server.js</code><span>启动本面板</span></div>
-              <button type="button" class="copy" data-copy="node ui-server.js" aria-label="复制启动命令">复制</button>
-            </li>
-          </ul>
         </section>
 
-        <section class="card" id="components" aria-labelledby="components-title">
-          <div class="card-head">
+        <section class="block" id="components" aria-labelledby="components-title">
+          <header class="block-head">
+            <span class="idx">04</span>
             <h2 id="components-title">已装组件</h2>
+            <span class="block-note">CORE / OPTIONAL</span>
+          </header>
+          <div class="block-body">
+            <div class="chips" id="components-body"></div>
+            <dl class="meta" id="components-meta"></dl>
           </div>
-          <div class="chips" id="components-body"></div>
-          <dl class="meta" id="components-meta"></dl>
         </section>
 
-        <section class="card" id="uiguard" aria-labelledby="uiguard-title">
-          <div class="card-head">
+        <section class="block" id="uiguard" aria-labelledby="uiguard-title">
+          <header class="block-head">
+            <span class="idx">05</span>
             <h2 id="uiguard-title">布局验收</h2>
-            <span class="card-note">ui-guard</span>
+            <span class="block-note">UI-GUARD</span>
+          </header>
+          <div class="block-body">
+            <div class="ug-head" id="ug-status"></div>
+            <dl class="meta" id="ug-meta"></dl>
+            <p class="footnote" id="ug-note">未注册时运行 <code>claude mcp add -s user ui-guard -- node &lt;路径&gt;/ui-guard/bin/ui-guard.js mcp</code>。</p>
           </div>
-          <div class="ug-head" id="ug-status"></div>
-          <dl class="meta" id="ug-meta"></dl>
-          <p class="footnote" id="ug-note">未注册时运行 <code>claude mcp add -s user ui-guard -- node &lt;路径&gt;/ui-guard/bin/ui-guard.js mcp</code>。</p>
         </section>
 
-        <section class="card" id="files" aria-labelledby="files-title">
-          <div class="card-head">
+        <section class="block" id="files" aria-labelledby="files-title">
+          <header class="block-head">
+            <span class="idx">06</span>
             <h2 id="files-title">文件健康</h2>
-            <span class="card-note" id="files-ratio">—</span>
+            <span class="block-note" id="files-ratio">—</span>
+          </header>
+          <div class="block-body">
+            <div class="bar" role="img" aria-label="文件完好比例"><span id="files-bar"></span></div>
+            <ul class="issues" id="files-issues"></ul>
           </div>
-          <div class="bar" role="img" aria-label="文件完好比例"><span id="files-bar"></span></div>
-          <ul class="issues" id="files-issues"></ul>
         </section>
 
-        <section class="card span-2" id="rules" aria-labelledby="rules-title">
-          <div class="card-head">
+        <section class="block span-2" id="rules" aria-labelledby="rules-title">
+          <header class="block-head">
+            <span class="idx">07</span>
             <h2 id="rules-title">放行规则</h2>
-            <span class="card-note">permissions.allow</span>
+            <span class="block-note">PERMISSIONS.ALLOW</span>
+          </header>
+          <div class="block-body">
+            <ul class="rule-list" id="rules-body"></ul>
           </div>
-          <ul class="rule-list" id="rules-body"></ul>
         </section>
 
-        <section class="card span-2" id="manage" aria-labelledby="manage-title">
-          <div class="card-head">
+        <section class="block span-2" id="manage" aria-labelledby="manage-title">
+          <header class="block-head">
+            <span class="idx">08</span>
             <h2 id="manage-title">组件与规则</h2>
-            <span class="card-note">重新运行安装器</span>
-          </div>
-          <div class="manage-grid">
-            <div class="manage-block">
-              <h3>组件</h3>
-              <label class="check"><input type="checkbox" value="usage" data-group="components"><span class="box"></span><span class="check-text">usage<small>用量统计</small></span></label>
-              <label class="check"><input type="checkbox" value="switch" data-group="components"><span class="box"></span><span class="check-text">switch<small>供应商与 CC Switch</small></span></label>
-              <p class="check-note">core 始终安装。</p>
+            <span class="block-note">RE-RUN INSTALLER</span>
+          </header>
+          <div class="block-body">
+            <div class="manage-grid">
+              <div class="manage-block">
+                <h3>COMPONENTS</h3>
+                <label class="check"><input type="checkbox" value="usage" data-group="components"><span class="box"></span><span class="check-text">usage<small>用量统计</small></span></label>
+                <label class="check"><input type="checkbox" value="switch" data-group="components"><span class="box"></span><span class="check-text">switch<small>供应商与 CC Switch</small></span></label>
+                <p class="check-note">core 始终安装。</p>
+              </div>
+              <div class="manage-block">
+                <h3>ALLOW RULES</h3>
+                <label class="check"><input type="checkbox" value="clean" data-group="rules"><span class="box"></span><span class="check-text">route-clean<small>删过程文件</small></span></label>
+                <label class="check"><input type="checkbox" value="check" data-group="rules"><span class="box"></span><span class="check-text">route-check<small>核实模型</small></span></label>
+                <label class="check"><input type="checkbox" value="audit" data-group="rules"><span class="box"></span><span class="check-text">usage-audit<small>查用量</small></span></label>
+                <label class="check"><input type="checkbox" value="doctor" data-group="rules"><span class="box"></span><span class="check-text">doctor<small>体检</small></span></label>
+              </div>
             </div>
-            <div class="manage-block">
-              <h3>放行规则</h3>
-              <label class="check"><input type="checkbox" value="clean" data-group="rules"><span class="box"></span><span class="check-text">route-clean<small>删过程文件</small></span></label>
-              <label class="check"><input type="checkbox" value="check" data-group="rules"><span class="box"></span><span class="check-text">route-check<small>核实模型</small></span></label>
-              <label class="check"><input type="checkbox" value="audit" data-group="rules"><span class="box"></span><span class="check-text">usage-audit<small>查用量</small></span></label>
-              <label class="check"><input type="checkbox" value="doctor" data-group="rules"><span class="box"></span><span class="check-text">doctor<small>体检</small></span></label>
+            <div class="manage-actions">
+              <p class="footnote">会重新运行安装器：先备份 settings.json，再按勾选增删放行规则。改完重启 Claude Code 生效。</p>
+              <button type="button" class="btn-primary" id="apply">APPLY CHANGES</button>
             </div>
-          </div>
-          <div class="manage-actions">
-            <p class="footnote">会重新运行安装器：先备份 settings.json，再按勾选增删放行规则。改完重启 Claude Code 生效。</p>
-            <button type="button" class="btn-primary" id="apply">应用更改</button>
           </div>
         </section>
 
-        <section class="card span-2" id="doctor" aria-labelledby="doctor-title">
-          <div class="card-head">
+        <section class="block span-2" id="doctor" aria-labelledby="doctor-title">
+          <header class="block-head">
+            <span class="idx">09</span>
             <h2 id="doctor-title">快速体检</h2>
-            <span class="card-note" id="doctor-meta">doctor --quick</span>
+            <span class="block-note" id="doctor-meta">doctor --quick</span>
+          </header>
+          <div class="block-body">
+            <pre class="console" id="doctor-body">读取中…</pre>
           </div>
-          <pre class="console" id="doctor-body">读取中…</pre>
         </section>
       </div>
     </main>
 
-    <footer class="foot">只读展示 + 安装器写操作 · 数据来自本机安装清单与设置 · <span id="foot-time">—</span></footer>
+    <footer class="foot">
+      <span>MODEL-ROUTER / LOCAL CONSOLE</span>
+      <span id="foot-time">—</span>
+      <span>READ-ONLY + INSTALLER ACTIONS</span>
+    </footer>
   </div>
+</div>
+
+<div class="intro" id="intro" role="dialog" aria-modal="true" aria-label="启动序列">
+  <div class="intro-frame">
+    <span class="intro-corner tl"></span><span class="intro-corner tr"></span>
+    <span class="intro-corner bl"></span><span class="intro-corner br"></span>
+    <img class="intro-gif" src="/opening.gif" alt="">
+    <div class="intro-copy">
+      <div class="intro-kicker">RHINE LAB // ANOMALY RESEARCH</div>
+      <div class="intro-title">MODEL ROUTER</div>
+      <div class="intro-line"><i id="intro-bar"></i></div>
+      <div class="intro-status"><span id="intro-pct">000</span><span id="intro-step">BOOT SEQUENCE</span></div>
+    </div>
+  </div>
+  <button type="button" class="intro-skip" id="intro-skip">SKIP</button>
 </div>
 
 <dialog id="dialog" class="dialog" aria-modal="true" aria-labelledby="dialog-title">
   <div class="dialog-body">
+    <div class="dialog-kicker">CONFIRM // INSTALLER</div>
     <h2 id="dialog-title">确认应用更改</h2>
     <p class="dialog-desc" id="dialog-desc">将重新运行安装器。</p>
     <ul class="dialog-summary" id="dialog-summary"></ul>

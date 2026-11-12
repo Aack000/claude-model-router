@@ -39,12 +39,60 @@ function toast(message) {
 }
 
 function setRing(ratio) {
-  const circumference = 351.86;
+  const circumference = 402.12;
   const value = Math.max(0, Math.min(1, ratio));
   $('ring-val').style.strokeDashoffset = String(circumference * (1 - value));
   $('ring-num').textContent = `${Math.round(value * 100)}%`;
 }
 
+/* ---------- intro sequence ---------- */
+function setupIntro() {
+  const intro = $('intro');
+  if (!intro) return;
+  if (document.documentElement.classList.contains('no-intro')) {
+    intro.remove();
+    return;
+  }
+  const duration = 2800;
+  const steps = [
+    [0, 'BOOT SEQUENCE'],
+    [25, 'LINK ESTABLISHED'],
+    [50, 'LOADING MANIFEST'],
+    [75, 'ROUTING TABLE'],
+    [95, 'SURFACE READY'],
+  ];
+  const started = performance.now();
+  const bar = $('intro-bar');
+  const pct = $('intro-pct');
+  const step = $('intro-step');
+  let finished = false;
+
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearInterval(timer);
+    intro.classList.add('done');
+    sessionStorage.setItem('intro-done', '1');
+    setTimeout(() => intro.remove(), 750);
+  };
+
+  const timer = setInterval(() => {
+    const t = Math.min(1, (performance.now() - started) / duration);
+    const value = Math.round(t * 100);
+    bar.style.width = `${value}%`;
+    pct.textContent = String(value).padStart(3, '0');
+    const current = steps.filter(([at]) => value >= at).pop();
+    if (current) step.textContent = current[1];
+    if (t >= 1) finish();
+  }, 40);
+
+  $('intro-skip').addEventListener('click', finish);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !finished) finish();
+  });
+}
+
+/* ---------- renderers ---------- */
 function renderRouting(rows) {
   const body = $('routing-body');
   body.replaceChildren();
@@ -79,10 +127,10 @@ function renderComponents(data) {
   const meta = $('components-meta');
   meta.replaceChildren();
   const add = (label, value) => meta.append(node('dt', '', label), node('dd', '', value));
-  add('版本', data.version ? `v${data.version}` : '未安装');
-  add('安装于', data.installedAt ? fmtTime(data.installedAt) : '—');
-  add('配置目录', data.configDir);
-  add('插件目录', data.pluginDir);
+  add('VERSION', data.version ? `v${data.version}` : '未安装');
+  add('INSTALLED', data.installedAt ? fmtTime(data.installedAt) : '—');
+  add('CONFIG', data.configDir);
+  add('PLUGIN', data.pluginDir);
 }
 
 function renderUiGuard(ug) {
@@ -90,7 +138,7 @@ function renderUiGuard(ug) {
   head.replaceChildren();
   if (ug.registered) {
     head.append(node('span', 'dot ok'), node('span', '', '已注册 MCP'));
-    head.append(node('span', 'badge ok', ug.scope === 'user' ? 'user' : 'project'));
+    head.append(node('span', 'tag on', ug.scope === 'user' ? 'USER' : 'PROJECT'));
   } else {
     head.append(node('span', 'dot warn'), node('span', '', '未注册 MCP'));
   }
@@ -98,16 +146,16 @@ function renderUiGuard(ug) {
   const meta = $('ug-meta');
   meta.replaceChildren();
   const add = (label, value) => meta.append(node('dt', '', label), node('dd', '', value));
-  add('版本', ug.version ? `v${ug.version}` : '未知');
+  add('VERSION', ug.version ? `v${ug.version}` : '未知');
   add('CLI', ug.cliPath || '未配置');
-  add('状态', ug.registered ? (ug.cliExists ? '可用' : '路径不存在') : '未连接');
-  add('报告', ug.reports > 0 ? `${ug.reports} 份 · ${fmtTime(ug.latestReportAt)}` : '暂无');
+  add('STATE', ug.registered ? (ug.cliExists ? '可用' : '路径不存在') : '未连接');
+  add('REPORTS', ug.reports > 0 ? `${ug.reports} 份 · ${fmtTime(ug.latestReportAt)}` : '暂无');
   $('ug-note').hidden = ug.registered && ug.cliExists;
 }
 
 function renderFiles(data) {
   const ratio = data.files.total > 0 ? data.files.ok / data.files.total : 0;
-  $('files-ratio').textContent = `${data.files.ok}/${data.files.total} 个文件一致`;
+  $('files-ratio').textContent = `${data.files.ok}/${data.files.total} FILES`;
   $('files-bar').style.width = `${Math.round(ratio * 100)}%`;
 
   const list = $('files-issues');
@@ -139,9 +187,7 @@ function renderRules(rules) {
     const li = node('li');
     const main = node('div', 'rule-main');
     main.append(node('strong', '', rule.id), node('span', '', rule.script));
-    const sw = node('span', `switch${rule.active ? ' on' : ''}`);
-    sw.append(node('i'));
-    li.append(main, sw);
+    li.append(main, node('span', `tag${rule.active ? ' on' : ''}`, rule.active ? 'ON' : 'OFF'));
     body.append(li);
   }
 }
@@ -154,7 +200,7 @@ function renderDoctor(doctor) {
   $('doctor-body').textContent = doctor.output || '（无输出）';
 }
 
-/* ---------- 管理区 ---------- */
+/* ---------- manage ---------- */
 let current = null;
 
 function initManage(data) {
@@ -244,12 +290,12 @@ async function applyChanges() {
   }
 }
 
-/* ---------- 主渲染 ---------- */
+/* ---------- main ---------- */
 function render(data) {
-  $('version').textContent = data.version ? `v${data.version}` : '未安装';
+  $('version').textContent = data.version ? `v${data.version}` : 'v—';
   $('config-dir').textContent = data.configDir;
   $('config-dir').title = data.configDir;
-  $('build').textContent = `${data.version ? `v${data.version}` : 'v—'} · ${data.configDir}`;
+  $('build').textContent = data.version ? `v${data.version}` : 'v—';
 
   const doctorWarn = !data.doctor.ok || data.doctor.timedOut || /[⚠✗❌]/.test(data.doctor.output || '');
   if (data.doctor.timedOut) setHealth('warn', '体检超时');
@@ -258,6 +304,8 @@ function render(data) {
   else setHealth('warn', '体检有提示');
 
   const healthy = data.doctor.ok && !data.doctor.timedOut && !doctorWarn;
+  $('hud-status').textContent = !data.installed ? 'OFFLINE' : healthy ? 'ONLINE' : 'DEGRADED';
+
   $('stat-install').textContent = data.installed ? '已安装' : '未安装';
   $('stat-install').className = `stat-value ${data.installed ? 'tone-ok' : 'tone-warn'}`;
   $('stat-install-hint').textContent = data.installedAt ? `更新于 ${fmtTime(data.installedAt)}` : '运行安装器后显示';
@@ -275,6 +323,7 @@ function render(data) {
 
   setRing(data.files.total ? data.files.ok / data.files.total : 0);
   $('ring-val').style.stroke = healthy ? '' : 'var(--amber)';
+  $('ring-meta').textContent = data.files.total ? `${data.files.ok} / ${data.files.total}` : '—';
 
   renderRouting(data.routing);
   renderComponents(data);
@@ -339,4 +388,5 @@ confirmButton.addEventListener('click', () => {
   applyChanges();
 });
 
+setupIntro();
 load();

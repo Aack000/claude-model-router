@@ -220,6 +220,7 @@ const STATIC = {
   '/index.html': ['ui/index.html', 'text/html; charset=utf-8'],
   '/style.css': ['ui/style.css', 'text/css; charset=utf-8'],
   '/app.js': ['ui/app.js', 'text/javascript; charset=utf-8'],
+  '/opening.gif': ['ui/opening.gif', 'image/gif'],
 };
 
 const server = http.createServer(async (req, res) => {
@@ -305,12 +306,32 @@ function openBrowser(url) {
   } catch { /* 打不开就手动访问打印出来的地址 */ }
 }
 
+function shutdown() {
+  try {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  } catch { /* 终端已断开 */ }
+  console.log('\n面板已退出');
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 500).unref();
+}
+
 server.listen(PORT, '127.0.0.1', () => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const url = `${base}/?token=${TOKEN}`;
   console.log(`model-router 控制面板：${url}`);
-  console.log('只监听本机回环；Ctrl+C 退出');
+  console.log('只监听本机回环 · 按 Q 退出');
   if (!NO_OPEN) openBrowser(url);
+
+  // 终端里按 q 退出（raw 模式下 Ctrl+C 不再产生 SIGINT，一并处理）
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      const key = String(chunk).toLowerCase();
+      if (key === 'q' || key === '\u0003') shutdown();
+    });
+  }
 });
 
 server.on('error', (err) => {
