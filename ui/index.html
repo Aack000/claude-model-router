@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>model-router · 控制面板</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="ambient" aria-hidden="true"></div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M8 24 16 8" stroke="var(--violet)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M15 24 23 8" stroke="var(--cyan)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M22 24 30 8" stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-text">
+        <strong>model-router</strong>
+        <span>本地控制面板</span>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="页面导航">
+      <a class="nav-link" href="#overview">概览</a>
+      <a class="nav-link" href="#routing">阶段路由</a>
+      <a class="nav-link" href="#components">组件</a>
+      <a class="nav-link" href="#files">文件健康</a>
+      <a class="nav-link" href="#rules">放行规则</a>
+      <a class="nav-link" href="#doctor">快速体检</a>
+    </nav>
+
+    <div class="side-note">
+      <span class="dot ok" aria-hidden="true"></span>
+      <div>
+        <strong>只读模式</strong>
+        <span>仅展示状态，不修改任何配置</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="breadcrumb">控制台 <span class="sep">/</span> <span class="pill" id="version">v—</span></div>
+      <div class="top-actions">
+        <span class="config-dir" id="config-dir" title="配置目录">—</span>
+        <button type="button" class="btn-refresh" id="refresh" aria-label="刷新状态">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V6H10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>刷新</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="overview">
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>运行状态</h1>
+          <p class="hero-sub">安装、路由与体检结果 · <span id="generated">正在读取…</span></p>
+        </div>
+        <div class="health" id="health" aria-live="polite">
+          <span class="dot idle" aria-hidden="true"></span>
+          <span class="health-text">检查中</span>
+        </div>
+      </section>
+
+      <section class="stats" aria-label="概览数据">
+        <article class="stat">
+          <span class="stat-label">安装状态</span>
+          <strong class="stat-value" id="stat-install">—</strong>
+          <span class="stat-hint" id="stat-install-hint">读取安装清单</span>
+        </article>
+        <article class="stat">
+          <span class="stat-label">快速体检</span>
+          <strong class="stat-value" id="stat-doctor">—</strong>
+          <span class="stat-hint" id="stat-doctor-hint">doctor --quick</span>
+        </article>
+        <article class="stat">
+          <span class="stat-label">组件</span>
+          <strong class="stat-value" id="stat-components">—</strong>
+          <span class="stat-hint" id="stat-components-hint">core / usage / switch</span>
+        </article>
+        <article class="stat">
+          <span class="stat-label">文件完好</span>
+          <strong class="stat-value" id="stat-files">—</strong>
+          <span class="stat-hint" id="stat-files-hint">清单核对</span>
+        </article>
+      </section>
+
+      <div class="grid">
+        <section class="card span-2" id="routing" aria-labelledby="routing-title">
+          <div class="card-head">
+            <h2 id="routing-title">阶段路由</h2>
+            <span class="card-note">别名 → 实际模型</span>
+          </div>
+          <div class="routing-table" id="routing-body">
+            <div class="route-row skeleton"></div>
+            <div class="route-row skeleton"></div>
+            <div class="route-row skeleton"></div>
+          </div>
+          <p class="footnote">映射来自 settings.json 的 <code>ANTHROPIC_DEFAULT_*_MODEL</code>；未映射的别名会让对应阶段调用失败。</p>
+        </section>
+
+        <section class="card" id="components" aria-labelledby="components-title">
+          <div class="card-head">
+            <h2 id="components-title">已装组件</h2>
+          </div>
+          <div class="chips" id="components-body"></div>
+          <dl class="meta" id="components-meta"></dl>
+        </section>
+
+        <section class="card" id="files" aria-labelledby="files-title">
+          <div class="card-head">
+            <h2 id="files-title">文件健康</h2>
+            <span class="card-note" id="files-ratio">—</span>
+          </div>
+          <div class="bar" role="img" aria-label="文件完好比例"><span id="files-bar"></span></div>
+          <ul class="issues" id="files-issues"></ul>
+        </section>
+
+        <section class="card span-2" id="rules" aria-labelledby="rules-title">
+          <div class="card-head">
+            <h2 id="rules-title">放行规则</h2>
+            <span class="card-note">permissions.allow</span>
+          </div>
+          <ul class="rule-list" id="rules-body"></ul>
+        </section>
+
+        <section class="card span-2" id="doctor" aria-labelledby="doctor-title">
+          <div class="card-head">
+            <h2 id="doctor-title">快速体检</h2>
+            <span class="card-note" id="doctor-meta">doctor --quick</span>
+          </div>
+          <pre class="console" id="doctor-body">读取中…</pre>
+        </section>
+      </div>
+    </main>
+
+    <footer class="foot">只读面板 · 数据来自本机安装清单与设置 · <span id="foot-time">—</span></footer>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/app.js"></script>
+</body>
+</html>

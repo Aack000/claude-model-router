@@ -273,6 +273,15 @@ claude plugin install model-router@model-router-marketplace
 
 审查单独触发：说「用 code-reviewer 审一下 xxx」。
 
+### 本地控制面板（只读）
+
+```bash
+node ~/.claude/plugins/model-router/ui-server.js                          # 自动打开 http://127.0.0.1:<随机端口>
+node ~/.claude/plugins/model-router/ui-server.js --port 34567 --no-open   # 固定端口 / 不自动开浏览器
+```
+
+展示安装状态、阶段路由的实际模型映射、组件、文件一致性、放行规则和 `doctor --quick` 结果。只读：只提供 GET，不写配置、不读凭据，只监听 `127.0.0.1`。在仓库里直接跑 `node ui-server.js`。
+
 **小任务默认走轻流程**：改动 ≤ 2 个文件、不改接口时，不启动规划子代理，主会话写一份 ≤ 10 行的计划记录后直接派一个 sonnet 包，审查照常；要先查证、有多种做法、或你说要规划时走完整流程。
 
 **看用量**（v2.0.0 起在 usage 组件里，旧路径仍可用）：

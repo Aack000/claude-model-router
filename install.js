@@ -403,8 +403,8 @@ function main() {
   } else {
     const pluginFiles = ['.claude-plugin/plugin.json', 'README.md', 'LICENSE', 'install.js', 'uninstall.js',
       'setup.js', 'setup.cmd', 'setup.ps1', 'setup.sh', 'setup.command',
-      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'configure.js',
-      ...listMd('commands'), ...listMd('agents'), ...listMd('docs')]
+      'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'configure.js', 'ui-server.js',
+      ...listMd('commands'), ...listMd('agents'), ...listMd('docs'), ...listMd('ui', '')]
       .filter((f) => fs.existsSync(path.join(SRC, f)));
     for (const f of pluginFiles) place(f, path.join(PLUGIN, f), 'plugin');
     // 组件：仓库里在 plugins/<名>/ 下，装好后去掉 plugins/ 前缀（<插件目录>/usage/…、<插件目录>/switch/…）；只装写死清单里的文件（见 COMPONENTS）
