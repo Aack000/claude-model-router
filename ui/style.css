@@ -74,11 +74,11 @@ body {
   border-right: 1px solid var(--line);
   background: #fbfcf9;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .mark { width: 34px; height: 34px; flex: 0 0 34px; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.4; min-width: 0; }
-.brand-text strong { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text); }
-.brand-text span { font-family: var(--mono); font-size: 8px; color: var(--dim); letter-spacing: 0.16em; }
+.brand-text strong { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text); white-space: nowrap; }
+.brand-text span { font-family: var(--mono); font-size: 8px; color: var(--dim); letter-spacing: 0.16em; white-space: nowrap; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
