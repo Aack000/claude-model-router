@@ -253,7 +253,9 @@ const dialog = $('dialog');
 const dialogLog = $('dialog-log');
 const confirmButton = $('dialog-confirm');
 
-function openDialog() {
+let pendingPayload = null;
+
+function openDialog(mode = 'apply') {
   if (running) {
     toast('安装器正在运行，请等它结束');
     return;
@@ -262,7 +264,24 @@ function openDialog() {
     toast('数据还没加载完成，先点 REFRESH');
     return;
   }
-  const { components, rules } = selected();
+
+  let payload;
+  if (mode === 'reinstall') {
+    payload = {
+      components: current.components,
+      rules: current.rules
+        .filter((r) => r.active && (r.id !== 'audit' || current.components.includes('usage')))
+        .map((r) => r.id),
+    };
+    $('dialog-title').textContent = '重装 / 升级面板';
+    $('dialog-desc').textContent = '按当前已安装的组件与规则重装，安装器会刷新面板文件并备份 settings.json。';
+  } else {
+    payload = selected();
+    $('dialog-title').textContent = '应用更改';
+    $('dialog-desc').textContent = '将重新运行安装器。';
+  }
+  pendingPayload = payload;
+  const { components, rules } = payload;
   const summary = $('dialog-summary');
   summary.replaceChildren();
   const add = (label, value) => {
@@ -282,7 +301,7 @@ function openDialog() {
 }
 
 async function applyChanges() {
-  const { components, rules } = selected();
+  const { components, rules } = pendingPayload || selected();
   running = true;
   confirmButton.disabled = true;
   confirmButton.textContent = '正在运行…';
@@ -461,7 +480,8 @@ for (const input of document.querySelectorAll('[data-group]')) {
 }
 
 $('refresh').addEventListener('click', load);
-$('apply').addEventListener('click', openDialog);
+$('apply').addEventListener('click', () => openDialog('apply'));
+$('reinstall').addEventListener('click', () => openDialog('reinstall'));
 $('dialog-cancel').addEventListener('click', () => {
   if (running) {
     toast('安装器正在运行，请等它结束');

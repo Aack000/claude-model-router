@@ -462,6 +462,7 @@ main { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 28px 46px; }
 .check-note { margin: 6px 0 0; padding-left: 24px; font-size: 9.5px; color: var(--dim); }
 .manage-actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .manage-actions .footnote { margin: 0; padding: 0; border: 0; flex: 1 1 320px; }
+.manage-buttons { display: flex; align-items: center; gap: 8px; }
 
 .btn-primary {
   padding: 8px 15px;

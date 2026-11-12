@@ -233,8 +233,11 @@
               </div>
             </div>
             <div class="manage-actions">
-              <p class="footnote">会重新运行安装器：先备份 settings.json，再按勾选增删放行规则。改完重启 Claude Code 生效。</p>
-              <button type="button" class="btn-primary" id="apply">APPLY CHANGES</button>
+              <p class="footnote">APPLY 按勾选增删组件与规则；REINSTALL 按当前已安装状态重装并刷新面板文件。两种都会先备份 settings.json，改完重启 Claude Code 生效。</p>
+              <div class="manage-buttons">
+                <button type="button" class="btn-ghost" id="reinstall">REINSTALL</button>
+                <button type="button" class="btn-primary" id="apply">APPLY CHANGES</button>
+              </div>
             </div>
           </div>
         </section>
