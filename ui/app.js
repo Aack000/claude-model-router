@@ -12,6 +12,8 @@ const token = sessionStorage.getItem('ui-token') || '';
 if (!token) {
   $('token-banner').hidden = false;
   $('apply').disabled = true;
+  $('reinstall').disabled = true;
+  $('reinstall').title = '需要写操作令牌';
 }
 
 function node(tag, className, text) {
