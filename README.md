@@ -280,7 +280,7 @@ node ~/.claude/plugins/model-router/ui-server.js                          # 自�
 node ~/.claude/plugins/model-router/ui-server.js --port 34567 --no-open   # 固定端口 / 不自动开浏览器
 ```
 
-展示安装状态、阶段路由的实际模型映射、组件、文件一致性、放行规则和 `doctor --quick` 结果。只读：只提供 GET，不写配置、不读凭据，只监听 `127.0.0.1`。在仓库里直接跑 `node ui-server.js`。
+展示安装状态、阶段路由的实际模型映射、组件、文件一致性、放行规则、ui-guard 接入状态和 `doctor --quick` 结果。面板里可以勾选组件 / 放行规则并重新运行安装器（安装器自己备份 `settings.json`；写操作要页面 token，只接受本机回环）。一键启动：Windows 双击 `start-panel.cmd`，macOS / Linux 跑 `./start-panel.sh`；在仓库里直接跑 `node ui-server.js`。
 
 **小任务默认走轻流程**：改动 ≤ 2 个文件、不改接口时，不启动规划子代理，主会话写一份 ≤ 10 行的计划记录后直接派一个 sonnet 包，审查照常；要先查证、有多种做法、或你说要规划时走完整流程。
 

@@ -404,6 +404,7 @@ function main() {
     const pluginFiles = ['.claude-plugin/plugin.json', 'README.md', 'LICENSE', 'install.js', 'uninstall.js',
       'setup.js', 'setup.cmd', 'setup.ps1', 'setup.sh', 'setup.command',
       'route-check.js', 'route-clean.js', 'doctor.js', 'usage-audit.js', 'configure.js', 'ui-server.js',
+      'start-panel.cmd', 'start-panel.sh',
       ...listMd('commands'), ...listMd('agents'), ...listMd('docs'), ...listMd('ui', '')]
       .filter((f) => fs.existsSync(path.join(SRC, f)));
     for (const f of pluginFiles) place(f, path.join(PLUGIN, f), 'plugin');

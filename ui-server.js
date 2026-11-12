@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * model-router 本地控制面板（只读）
+ * model-router 本地控制面板
  *
  * 用法：
  *   node ui-server.js                 起服务并自动打开浏览器（随机端口，只监听 127.0.0.1）
  *   node ui-server.js --port 34567    固定端口
  *   node ui-server.js --no-open       不自动打开浏览器
  *
- * 设计边界：只提供 GET，只读展示安装清单、模型别名映射、放行规则和 doctor --quick 结果；
- * 不写任何配置、不碰凭据，不打印 env 里的其它值。装好的副本里同样直接可用（ui/ 目录随插件复制）。
+ * 只读接口照常展示安装状态、路由映射、规则、文件健康和 doctor --quick；
+ * 唯一的写操作是 POST /api/install：按页面勾选的组件 / 放行规则重新运行安装器。
+ * 写操作要带启动时生成的一次性 token（URL query 传入，页面存 sessionStorage），
+ * 并校验 Origin，只接受本机回环访问；安装器自己负责备份和改 settings.json。
  */
 'use strict';
 
@@ -20,16 +22,17 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const ROOT = __dirname;
-const UI_DIR = path.join(ROOT, 'ui');
 const CLAUDE = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(os.homedir(), '.claude');
 const PLUGIN = path.join(CLAUDE, 'plugins', 'model-router');
 const MANIFEST = path.join(PLUGIN, '.install-manifest.json');
 const SETTINGS = path.join(CLAUDE, 'settings.json');
+const CLAUDE_JSON = path.join(os.homedir(), '.claude.json');
 
 const argv = process.argv.slice(2);
 const portAt = argv.indexOf('--port');
 const PORT = portAt >= 0 ? Number(argv[portAt + 1]) : 0;
 const NO_OPEN = argv.includes('--no-open');
+const TOKEN = crypto.randomBytes(18).toString('hex');
 
 const readJson = (p) => {
   try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')); } catch { return null; }
@@ -39,10 +42,12 @@ const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
 const short = (p) => String(p).replace(os.homedir(), '~');
 
 const RULE_SCRIPTS = { clean: 'route-clean', check: 'route-check', audit: 'usage-audit', doctor: 'doctor' };
+const ALLOWED_COMPONENTS = ['core', 'usage', 'switch'];
+const ALLOWED_RULES = ['clean', 'check', 'audit', 'doctor'];
 
 let doctorCache = null;
+let claudeJsonCache = null;
 
-/** doctor --quick：只读 settings.json，毫秒级；缓存 20 秒，避免每次刷新都起子进程 */
 function runDoctor() {
   if (doctorCache && Date.now() - doctorCache.at < 20000) return Promise.resolve(doctorCache.data);
   return new Promise((resolve) => {
@@ -50,18 +55,66 @@ function runDoctor() {
     execFile(process.execPath, [path.join(ROOT, 'doctor.js'), '--quick'], {
       cwd: ROOT, timeout: 8000, windowsHide: true, maxBuffer: 1024 * 1024,
     }, (err, stdout, stderr) => {
-      const output = stripAnsi(`${stdout || ''}${stderr || ''}`).trim();
       const data = {
         ok: !err || err.code === 0,
         code: err && typeof err.code === 'number' ? err.code : 0,
         timedOut: Boolean(err && err.killed),
-        output,
+        output: stripAnsi(`${stdout || ''}${stderr || ''}`).trim(),
         durationMs: Date.now() - started,
       };
       doctorCache = { at: Date.now(), data };
       resolve(data);
     });
   });
+}
+
+/** 从 ~/.claude.json 找 ui-guard 的 MCP 注册（user 或 project scope），并核对 CLI 路径 */
+function uiGuardStatus() {
+  if (!claudeJsonCache || Date.now() - claudeJsonCache.at > 10000) {
+    claudeJsonCache = { at: Date.now(), data: readJson(CLAUDE_JSON) || {} };
+  }
+  const cfg = claudeJsonCache.data;
+  let entry = cfg.mcpServers && cfg.mcpServers['ui-guard'];
+  let scope = entry ? 'user' : null;
+  let projectPath = null;
+  if (!entry && cfg.projects && typeof cfg.projects === 'object') {
+    for (const [p, project] of Object.entries(cfg.projects)) {
+      if (project && project.mcpServers && project.mcpServers['ui-guard']) {
+        entry = project.mcpServers['ui-guard'];
+        scope = 'project';
+        projectPath = p;
+        break;
+      }
+    }
+  }
+  const args = Array.isArray(entry?.args) ? entry.args.map(String) : [];
+  const cliPath = args.find((a) => /ui-guard[\\/]+bin[\\/]+ui-guard\.js$/i.test(a)) || null;
+  let version = null;
+  if (cliPath) {
+    version = readJson(path.join(path.dirname(path.dirname(cliPath)), 'package.json'))?.version || null;
+  }
+  let reports = 0;
+  let latestReportAt = null;
+  try {
+    for (const name of fs.readdirSync(os.tmpdir())) {
+      if (!/^ui-guard-.*\.json$/i.test(name)) continue;
+      reports++;
+      const stat = fs.statSync(path.join(os.tmpdir(), name));
+      if (!latestReportAt || stat.mtimeMs > new Date(latestReportAt).getTime()) {
+        latestReportAt = new Date(stat.mtimeMs).toISOString();
+      }
+    }
+  } catch { /* 临时目录不可读就显示 0 */ }
+  return {
+    registered: Boolean(entry),
+    scope,
+    projectPath,
+    cliPath: cliPath ? short(cliPath) : null,
+    cliExists: cliPath ? fs.existsSync(cliPath) : false,
+    version,
+    reports,
+    latestReportAt,
+  };
 }
 
 async function buildStatus() {
@@ -88,8 +141,7 @@ async function buildStatus() {
     active: allow.some((r) => typeof r === 'string' && r.includes(RULE_SCRIPTS[id])),
   }));
 
-  const usageFiles = files.filter((f) => /[\\/]usage[\\/]/.test(f.target)).length;
-  const switchFiles = files.filter((f) => /[\\/]switch[\\/]/.test(f.target)).length;
+  const components = Array.isArray(manifest?.components) ? manifest.components : [];
 
   return {
     installed: Boolean(manifest),
@@ -97,11 +149,11 @@ async function buildStatus() {
     installedAt: manifest?.installedAt || null,
     configDir: short(CLAUDE),
     pluginDir: short(PLUGIN),
-    components: Array.isArray(manifest?.components) ? manifest.components : [],
+    components,
     componentFiles: {
       core: files.filter((f) => f.kind === 'plugin').length,
-      usage: usageFiles,
-      switch: switchFiles,
+      usage: files.filter((f) => /[\\/]usage[\\/]/.test(f.target)).length,
+      switch: files.filter((f) => /[\\/]switch[\\/]/.test(f.target)).length,
     },
     routing: [
       { role: '规划', agent: 'planner-fable', alias: 'fable', model: modelFor('fable'), tone: 'violet' },
@@ -115,9 +167,52 @@ async function buildStatus() {
       ok: files.filter((f) => f.state === 'ok').length,
       issues: files.filter((f) => f.state !== 'ok').slice(0, 12),
     },
+    uiGuard: uiGuardStatus(),
     doctor: await runDoctor(),
     generatedAt: new Date().toISOString(),
   };
+}
+
+function runInstall(components, rules) {
+  const comps = components.filter((c) => ALLOWED_COMPONENTS.includes(c));
+  if (!comps.includes('core')) comps.unshift('core');
+  const selected = rules.filter((r) => ALLOWED_RULES.includes(r));
+  const args = [
+    path.join(ROOT, 'install.js'),
+    `--components=${comps.join(',')}`,
+    `--rules=${selected.length ? selected.join(',') : 'none'}`,
+  ];
+  return new Promise((resolve) => {
+    execFile(process.execPath, args, {
+      cwd: ROOT, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      doctorCache = null;
+      claudeJsonCache = null;
+      resolve({
+        ok: !err,
+        code: err && typeof err.code === 'number' ? err.code : (err ? 1 : 0),
+        output: stripAnsi(`${stdout || ''}${stderr || ''}`).trim().slice(-8000),
+      });
+    });
+  });
+}
+
+function readBody(req, limit = 32768) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 const STATIC = {
@@ -128,23 +223,56 @@ const STATIC = {
 };
 
 const server = http.createServer(async (req, res) => {
+  let pathname = '/';
+  try { pathname = new URL(req.url, 'http://127.0.0.1').pathname; } catch { /* 默认路径 */ }
+
+  if (pathname === '/api/status') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('method not allowed');
+      return;
+    }
+    try {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(await buildStatus()));
+    } catch (err) {
+      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: String((err && err.message) || err) }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/install') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('method not allowed');
+      return;
+    }
+    const origin = req.headers.origin;
+    const port = server.address().port;
+    const allowedOrigins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+    if (req.headers['x-ui-token'] !== TOKEN || (origin && !allowedOrigins.includes(origin))) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'forbidden' }));
+      return;
+    }
+    try {
+      const body = JSON.parse(await readBody(req));
+      const components = Array.isArray(body.components) ? body.components : ['core'];
+      const rules = Array.isArray(body.rules) ? body.rules : [];
+      const result = await runInstall(components, rules);
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: String((err && err.message) || err) }));
+    }
+    return;
+  }
+
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('read-only');
-    return;
-  }
-  let pathname = '/';
-  try { pathname = new URL(req.url, 'http://127.0.0.1').pathname; } catch { /* 用默认路径 */ }
-
-  if (pathname === '/api/status') {
-    try {
-      const body = JSON.stringify(await buildStatus());
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(body);
-    } catch (err) {
-      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: String(err && err.message || err) }));
-    }
     return;
   }
 
@@ -154,9 +282,8 @@ const server = http.createServer(async (req, res) => {
     res.end('not found');
     return;
   }
-  const file = path.join(ROOT, entry[0]);
   try {
-    const body = fs.readFileSync(file);
+    const body = fs.readFileSync(path.join(ROOT, entry[0]));
     res.writeHead(200, { 'content-type': entry[1], 'cache-control': 'no-store' });
     res.end(body);
   } catch {
@@ -179,9 +306,10 @@ function openBrowser(url) {
 }
 
 server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${server.address().port}`;
-  console.log(`model-router 控制面板（只读）：${url}`);
-  console.log('数据：安装清单 + model-router 设置 + doctor --quick；Ctrl+C 退出');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const url = `${base}/?token=${TOKEN}`;
+  console.log(`model-router 控制面板：${url}`);
+  console.log('只监听本机回环；Ctrl+C 退出');
   if (!NO_OPEN) openBrowser(url);
 });
 

@@ -2,6 +2,14 @@
 
 const $ = (id) => document.getElementById(id);
 
+/* 启动时 URL 里的 token 只用于写操作校验：读进 sessionStorage 后从地址栏抹掉 */
+const urlToken = new URLSearchParams(location.search).get('token');
+if (urlToken) {
+  sessionStorage.setItem('ui-token', urlToken);
+  history.replaceState(null, '', location.pathname);
+}
+const token = sessionStorage.getItem('ui-token') || '';
+
 function node(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -10,8 +18,7 @@ function node(tag, className, text) {
 }
 
 function setHealth(tone, text) {
-  const wrap = $('health');
-  wrap.replaceChildren(node('span', `dot ${tone}`), node('span', 'health-text', text));
+  $('health').replaceChildren(node('span', `dot ${tone}`), node('span', 'health-text', text));
 }
 
 function fmtTime(iso) {
@@ -31,24 +38,29 @@ function toast(message) {
   toast.timer = setTimeout(() => el.classList.remove('show'), 3200);
 }
 
+function setRing(ratio) {
+  const circumference = 351.86;
+  const value = Math.max(0, Math.min(1, ratio));
+  $('ring-val').style.strokeDashoffset = String(circumference * (1 - value));
+  $('ring-num').textContent = `${Math.round(value * 100)}%`;
+}
+
 function renderRouting(rows) {
   const body = $('routing-body');
   body.replaceChildren();
   for (const r of rows) {
     const row = node('div', 'route-row');
 
-    const roleWrap = node('div', 'route-role');
-    roleWrap.append(node('span', `dot ${r.tone}`), node('span', '', r.role));
     const role = node('div');
-    role.append(roleWrap, node('span', 'route-agent', r.agent));
+    const roleHead = node('div', 'route-role');
+    roleHead.append(node('span', `dot ${r.tone}`), node('span', '', r.role));
+    role.append(roleHead, node('span', 'route-agent', r.agent));
 
     const alias = node('div', 'route-alias');
-    alias.append(node('code', '', r.alias), node('span', 'arrow', '→'));
-
-    const model = r.model
-      ? node('span', 'route-model', r.model)
-      : node('span', 'route-model warn', '未映射');
-    alias.append(model);
+    const target = node('span', 'route-target');
+    target.append(node('span', 'arrow', '→'));
+    target.append(r.model ? node('span', 'route-model', r.model) : node('span', 'route-model warn', '未映射'));
+    alias.append(node('code', '', r.alias), target);
 
     row.append(role, alias);
     body.append(row);
@@ -58,23 +70,39 @@ function renderRouting(rows) {
 function renderComponents(data) {
   const body = $('components-body');
   body.replaceChildren();
-  const known = ['core', 'usage', 'switch'];
-  for (const id of known) {
+  for (const id of ['core', 'usage', 'switch']) {
     const on = data.components.includes(id);
     const chip = node('span', `chip${on ? '' : ' off'}`);
     chip.append(node('span', `dot ${on ? 'ok' : ''}`), document.createTextNode(id));
     body.append(chip);
   }
-
   const meta = $('components-meta');
   meta.replaceChildren();
-  const add = (label, value) => {
-    meta.append(node('dt', '', label), node('dd', '', value));
-  };
+  const add = (label, value) => meta.append(node('dt', '', label), node('dd', '', value));
   add('版本', data.version ? `v${data.version}` : '未安装');
   add('安装于', data.installedAt ? fmtTime(data.installedAt) : '—');
   add('配置目录', data.configDir);
   add('插件目录', data.pluginDir);
+}
+
+function renderUiGuard(ug) {
+  const head = $('ug-status');
+  head.replaceChildren();
+  if (ug.registered) {
+    head.append(node('span', 'dot ok'), node('span', '', '已注册 MCP'));
+    head.append(node('span', 'badge ok', ug.scope === 'user' ? 'user' : 'project'));
+  } else {
+    head.append(node('span', 'dot warn'), node('span', '', '未注册 MCP'));
+  }
+
+  const meta = $('ug-meta');
+  meta.replaceChildren();
+  const add = (label, value) => meta.append(node('dt', '', label), node('dd', '', value));
+  add('版本', ug.version ? `v${ug.version}` : '未知');
+  add('CLI', ug.cliPath || '未配置');
+  add('状态', ug.registered ? (ug.cliExists ? '可用' : '路径不存在') : '未连接');
+  add('报告', ug.reports > 0 ? `${ug.reports} 份 · ${fmtTime(ug.latestReportAt)}` : '暂无');
+  $('ug-note').hidden = ug.registered && ug.cliExists;
 }
 
 function renderFiles(data) {
@@ -95,13 +123,13 @@ function renderFiles(data) {
   const label = { missing: '缺失', modified: '被修改', unreadable: '不可读' };
   for (const issue of data.files.issues) {
     const li = node('li');
-    const badgeClass = issue.state === 'missing' ? 'err' : 'warn';
-    li.append(node('span', `badge ${badgeClass}`, label[issue.state] || issue.state), document.createTextNode(issue.target));
+    li.append(
+      node('span', `badge ${issue.state === 'missing' ? 'err' : 'warn'}`, label[issue.state] || issue.state),
+      document.createTextNode(issue.target)
+    );
     list.append(li);
   }
-  if (data.files.issues.length === 12) {
-    list.append(node('li', 'empty', '仅显示前 12 条。'));
-  }
+  if (data.files.issues.length === 12) list.append(node('li', 'empty', '仅显示前 12 条。'));
 }
 
 function renderRules(rules) {
@@ -111,25 +139,117 @@ function renderRules(rules) {
     const li = node('li');
     const main = node('div', 'rule-main');
     main.append(node('strong', '', rule.id), node('span', '', rule.script));
-    li.append(main, node('span', `badge ${rule.active ? 'ok' : 'warn'}`, rule.active ? '已放行' : '未放行'));
+    const sw = node('span', `switch${rule.active ? ' on' : ''}`);
+    sw.append(node('i'));
+    li.append(main, sw);
     body.append(li);
   }
 }
 
 function renderDoctor(doctor) {
   const meta = $('doctor-meta');
-  const dot = doctor.timedOut ? 'warn' : doctor.ok ? 'ok' : 'err';
   const state = doctor.timedOut ? '超时' : doctor.ok ? '通过' : '有异常';
-  meta.replaceChildren(node('span', `dot ${dot}`), document.createTextNode(` ${state} · ${doctor.durationMs}ms · exit ${doctor.code}`));
-
-  const pre = $('doctor-body');
-  pre.textContent = doctor.output || '（无输出）';
+  const tone = doctor.timedOut ? 'warn' : doctor.ok ? 'ok' : 'err';
+  meta.replaceChildren(node('span', `dot ${tone}`), document.createTextNode(` ${state} · ${doctor.durationMs}ms · exit ${doctor.code}`));
+  $('doctor-body').textContent = doctor.output || '（无输出）';
 }
 
+/* ---------- 管理区 ---------- */
+let current = null;
+
+function initManage(data) {
+  current = data;
+  for (const input of document.querySelectorAll('[data-group="components"]')) {
+    input.checked = data.components.includes(input.value);
+  }
+  for (const input of document.querySelectorAll('[data-group="rules"]')) {
+    const active = data.rules.find((r) => r.id === input.value)?.active;
+    input.checked = Boolean(active);
+  }
+  syncDependencies();
+}
+
+function syncDependencies() {
+  const usage = document.querySelector('[data-group="components"][value="usage"]');
+  const audit = document.querySelector('[data-group="rules"][value="audit"]');
+  if (!usage || !audit) return;
+  if (audit.checked && !usage.checked) usage.checked = true;
+  audit.disabled = !usage.checked;
+  if (audit.disabled) audit.checked = false;
+}
+
+function selected() {
+  const components = [...document.querySelectorAll('[data-group="components"]')]
+    .filter((i) => i.checked).map((i) => i.value);
+  const rules = [...document.querySelectorAll('[data-group="rules"]')]
+    .filter((i) => i.checked).map((i) => i.value);
+  return { components, rules };
+}
+
+const dialog = $('dialog');
+const dialogLog = $('dialog-log');
+const confirmButton = $('dialog-confirm');
+
+function openDialog() {
+  if (!current) return;
+  const { components, rules } = selected();
+  const summary = $('dialog-summary');
+  summary.replaceChildren();
+  const add = (label, value) => {
+    const li = node('li');
+    li.append(node('b', '', label), document.createTextNode(value));
+    summary.append(li);
+  };
+  add('组件', ['core', ...components].join('、'));
+  add('规则', rules.length ? rules.join('、') : '全部移除');
+  add('影响', '重装后需重启 Claude Code');
+
+  dialogLog.hidden = true;
+  dialogLog.textContent = '';
+  confirmButton.disabled = false;
+  confirmButton.textContent = '确认并运行';
+  dialog.showModal();
+}
+
+async function applyChanges() {
+  const { components, rules } = selected();
+  confirmButton.disabled = true;
+  confirmButton.textContent = '正在运行…';
+  dialogLog.hidden = false;
+  dialogLog.textContent = '正在运行安装器…';
+  try {
+    const res = await fetch('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ui-token': token },
+      body: JSON.stringify({ components, rules }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    dialogLog.textContent = data.output || '（无输出）';
+    dialogLog.scrollTop = dialogLog.scrollHeight;
+    if (data.ok) {
+      confirmButton.textContent = '完成';
+      toast('安装器已完成');
+      await load();
+    } else {
+      confirmButton.disabled = false;
+      confirmButton.textContent = '重试';
+      toast(`安装器退出码 ${data.code}`);
+    }
+  } catch (err) {
+    dialogLog.textContent = `失败：${err.message}`;
+    confirmButton.disabled = false;
+    confirmButton.textContent = '重试';
+    toast('写操作失败');
+  }
+}
+
+/* ---------- 主渲染 ---------- */
 function render(data) {
   $('version').textContent = data.version ? `v${data.version}` : '未安装';
   $('config-dir').textContent = data.configDir;
   $('config-dir').title = data.configDir;
+  $('build').textContent = `${data.version ? `v${data.version}` : 'v—'} · ${data.configDir}`;
 
   const doctorWarn = !data.doctor.ok || data.doctor.timedOut || /[⚠✗❌]/.test(data.doctor.output || '');
   if (data.doctor.timedOut) setHealth('warn', '体检超时');
@@ -137,29 +257,32 @@ function render(data) {
   else if (data.doctor.ok && !doctorWarn) setHealth('ok', '运行正常');
   else setHealth('warn', '体检有提示');
 
+  const healthy = data.doctor.ok && !data.doctor.timedOut && !doctorWarn;
   $('stat-install').textContent = data.installed ? '已安装' : '未安装';
   $('stat-install').className = `stat-value ${data.installed ? 'tone-ok' : 'tone-warn'}`;
   $('stat-install-hint').textContent = data.installedAt ? `更新于 ${fmtTime(data.installedAt)}` : '运行安装器后显示';
 
-  const doctorHealthy = data.doctor.ok && !data.doctor.timedOut && !doctorWarn;
-  $('stat-doctor').textContent = data.doctor.timedOut ? '超时' : doctorHealthy ? '通过' : '有提示';
-  $('stat-doctor').className = `stat-value ${doctorHealthy ? 'tone-ok' : 'tone-warn'}`;
+  $('stat-doctor').textContent = data.doctor.timedOut ? '超时' : healthy ? '通过' : '有提示';
+  $('stat-doctor').className = `stat-value ${healthy ? 'tone-ok' : 'tone-warn'}`;
   $('stat-doctor-hint').textContent = `doctor --quick · ${data.doctor.durationMs}ms`;
 
-  const comps = data.components.length ? data.components.join(' · ') : '无';
   $('stat-components').textContent = data.components.length ? `${data.components.length} 个` : '—';
-  $('stat-components-hint').textContent = comps;
+  $('stat-components-hint').textContent = data.components.length ? data.components.join(' · ') : '未安装';
 
-  const ratio = data.files.total ? `${data.files.ok}/${data.files.total}` : '—';
-  $('stat-files').textContent = ratio;
+  $('stat-files').textContent = data.files.total ? `${data.files.ok}/${data.files.total}` : '—';
   $('stat-files').className = `stat-value ${data.files.total && data.files.issues.length ? 'tone-warn' : ''}`;
   $('stat-files-hint').textContent = data.files.issues.length ? `${data.files.issues.length} 个异常` : '全部一致';
 
+  setRing(data.files.total ? data.files.ok / data.files.total : 0);
+  $('ring-val').style.stroke = healthy ? '' : 'var(--amber)';
+
   renderRouting(data.routing);
   renderComponents(data);
+  renderUiGuard(data.uiGuard);
   renderFiles(data);
   renderRules(data.rules);
   renderDoctor(data.doctor);
+  initManage(data);
 
   const generated = new Date(data.generatedAt);
   $('generated').textContent = `生成于 ${generated.toLocaleTimeString('zh-CN', { hour12: false })}`;
@@ -183,5 +306,37 @@ async function load() {
   }
 }
 
+document.querySelectorAll('.copy').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const text = button.dataset.copy || '';
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制');
+    } catch {
+      const helper = document.createElement('textarea');
+      helper.value = text;
+      document.body.append(helper);
+      helper.select();
+      document.execCommand('copy');
+      helper.remove();
+      toast('已复制');
+    }
+  });
+});
+
+for (const input of document.querySelectorAll('[data-group="components"]')) {
+  input.addEventListener('change', syncDependencies);
+}
+
 $('refresh').addEventListener('click', load);
+$('apply').addEventListener('click', openDialog);
+$('dialog-cancel').addEventListener('click', () => dialog.close());
+confirmButton.addEventListener('click', () => {
+  if (confirmButton.textContent === '完成') {
+    dialog.close();
+    return;
+  }
+  applyChanges();
+});
+
 load();
