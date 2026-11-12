@@ -14,8 +14,8 @@
   --teal: #0f766e;
   --amber: #8a5405;
   --red: #b91c1c;
-  --mono: "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
-  --sans: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   --radius: 10px;
 }
 
@@ -28,8 +28,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   min-height: 100vh;
 }
 
@@ -711,7 +711,71 @@ main { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 28px 46px; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .scanline, .block, .skeleton, .dot.idle, .btn-square.loading { animation: none; }
+  .block, .skeleton, .dot.idle, .btn-square.loading { animation: none; }
   .bar span, .ring-val, .intro, .intro-line i { transition: none; }
   .hud { backdrop-filter: none; background: var(--bg); }
 }
+
+/* ---------- typography scale (readability first) ---------- */
+.brand-text strong { font-size: 12px; }
+.brand-text span { font-size: 9.5px; }
+.nav-item { font-size: 13px; }
+.nav-item em { font-size: 10px; }
+.hud-brand { font-size: 10px; }
+.hud-tag { font-size: 10px; }
+.hud-id { font-size: 11px; }
+.hud-path { font-size: 10.5px; }
+.btn-square { font-size: 10.5px; }
+.eyebrow { font-size: 10.5px; }
+.hero-sub { font-size: 14px; }
+.hero-sub #generated { font-size: 11px; }
+.health { font-size: 11px; }
+.ring-head, .ring-foot { font-size: 9.5px; }
+.ring-center strong { font-size: 28px; }
+.ring-center span { font-size: 10px; }
+.idx { font-size: 10px; }
+.stat-label { font-size: 9.5px; }
+.stat-value { font-size: 26px; }
+.stat-hint { font-size: 11px; }
+.block-head h2 { font-size: 13.5px; }
+.block-note { font-size: 9.5px; }
+.route-role { font-size: 14px; }
+.route-agent { font-size: 10.5px; }
+.route-alias code { font-size: 12px; }
+.route-model { font-size: 12px; }
+.arrow { font-size: 12px; }
+.footnote { font-size: 12px; }
+.footnote code { font-size: 11px; }
+.cmd-main code { font-size: 12.5px; }
+.cmd-main span { font-size: 11.5px; }
+.copy { font-size: 10px; }
+.chip { font-size: 11px; }
+.meta dt { font-size: 10.5px; }
+.meta dd { font-size: 11px; }
+.issues li { font-size: 11px; }
+.badge { font-size: 9.5px; }
+.rule-main strong { font-size: 12px; }
+.rule-main span { font-size: 10px; }
+.tag { font-size: 10px; }
+.manage-block h3 { font-size: 9.5px; }
+.check-text { font-size: 12px; }
+.check-text small { font-size: 10.5px; }
+.check-note { font-size: 10.5px; }
+.btn-primary, .btn-ghost { font-size: 10.5px; }
+.console { font-size: 11.5px; }
+.dialog-kicker { font-size: 9.5px; }
+.dialog-desc { font-size: 12.5px; }
+.dialog-summary { font-size: 11px; }
+.foot { font-size: 9.5px; }
+.toast { font-size: 10.5px; }
+.intro-kicker { font-size: 10px; }
+.intro-status { font-size: 10px; }
+.intro-skip { font-size: 10px; }
+
+@media (max-width: 560px) {
+  .stat-value { font-size: 22px; }
+  .hero h1 { font-size: 30px; }
+  .hud-brand { font-size: 9px; }
+}
+
+
