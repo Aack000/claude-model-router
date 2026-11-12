@@ -785,6 +785,7 @@ main { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 28px 46px; }
   .stat-value { font-size: 22px; }
   .hero h1 { font-size: 30px; }
   .hud-brand { font-size: 9px; }
+  .block { scroll-margin-top: 76px; }
 }
 
 
