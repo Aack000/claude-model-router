@@ -284,8 +284,11 @@ const server = http.createServer(async (req, res) => {
     installing = true;
     try {
       const body = JSON.parse(await readBody(req));
-      const components = Array.isArray(body.components) ? body.components : ['core'];
-      const rules = Array.isArray(body.rules) ? body.rules : [];
+      if (!Array.isArray(body.components) || !Array.isArray(body.rules) || body.components.length === 0) {
+        throw new Error('components and rules must be non-empty arrays');
+      }
+      const components = body.components;
+      const rules = body.rules;
       const result = await runInstall(components, rules);
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(result));

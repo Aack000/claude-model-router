@@ -2,13 +2,20 @@
 
 const $ = (id) => document.getElementById(id);
 
-/* 启动时 URL 里的 token 只用于写操作校验：读进 sessionStorage 后从地址栏抹掉 */
+/* 启动时 URL 里的 token 只用于写操作校验：读进 sessionStorage 后从地址栏抹掉。
+   浏览器禁用站点数据时 storage 会抛 SecurityError：降级为无 token，不能让整页脚本中断。 */
+const readStorage = (key) => {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+};
+const writeStorage = (key, value) => {
+  try { sessionStorage.setItem(key, value); } catch { /* storage blocked */ }
+};
 const urlToken = new URLSearchParams(location.search).get('token');
 if (urlToken) {
-  sessionStorage.setItem('ui-token', urlToken);
-  history.replaceState(null, '', location.pathname);
+  writeStorage('ui-token', urlToken);
+  try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
 }
-const token = sessionStorage.getItem('ui-token') || '';
+const token = readStorage('ui-token') || '';
 if (!token) {
   $('token-banner').hidden = false;
   $('apply').disabled = true;
@@ -84,7 +91,7 @@ function setupIntro() {
     clearInterval(timer);
     intro.classList.add('done');
     if (app) app.inert = false;
-    sessionStorage.setItem('intro-done', '1');
+    writeStorage('intro-done', '1');
     setTimeout(() => intro.remove(), 750);
   };
 
@@ -291,7 +298,7 @@ function openDialog(mode = 'apply') {
     li.append(node('b', '', label), document.createTextNode(value));
     summary.append(li);
   };
-  add('组件', ['core', ...components].join('、'));
+  add('组件', [...new Set(['core', ...components])].join('、'));
   add('规则', rules.length ? rules.join('、') : '全部移除');
   add('影响', '重装后需重启 Claude Code');
 
@@ -374,8 +381,13 @@ function renderError(message) {
   $('rules-body').replaceChildren(node('li', 'empty', message));
   $('doctor-body').textContent = message;
   $('legacy-note').hidden = true;
+  $('doctor-meta').textContent = '读取失败';
+  $('ug-note').hidden = true;
   $('generated').textContent = '读取失败';
-  dirty = false;
+  current = null;
+  $('apply').disabled = true;
+  $('reinstall').disabled = true;
+  // 保留 dirty：用户未保存的勾选不应因一次读取失败被静默丢弃。
 }
 
 function render(data) {
@@ -437,6 +449,11 @@ function render(data) {
   const generated = new Date(data.generatedAt);
   $('generated').textContent = `生成于 ${generated.toLocaleTimeString('zh-CN', { hour12: false })}`;
   $('foot-time').textContent = fmtTime(data.generatedAt);
+
+  // 写按钮跟随 token / 安装状态；错误态被禁用后由下一次成功 render 恢复。
+  $('apply').disabled = !token;
+  $('reinstall').disabled = !token || !data.installed;
+  $('reinstall').title = !token ? '需要写操作令牌' : data.installed ? '' : '先安装核心组件再重装';
 }
 
 async function load() {
