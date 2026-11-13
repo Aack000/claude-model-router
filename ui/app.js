@@ -45,6 +45,10 @@ function fmtTime(iso) {
 
 function toast(message) {
   const el = $('toast');
+  // A modal dialog is in the top layer, so a toast in <body> is painted under
+  // its backdrop. Move the toast into the dialog while it is open.
+  const host = dialog.open ? dialog : document.body;
+  if (el.parentElement !== host) host.append(el);
   el.textContent = message;
   el.classList.add('show');
   clearTimeout(toast.timer);
@@ -456,10 +460,17 @@ function render(data) {
   $('generated').textContent = `生成于 ${generated.toLocaleTimeString('zh-CN', { hour12: false })}`;
   $('foot-time').textContent = fmtTime(data.generatedAt);
 
-  // 写按钮跟随 token / 安装状态；错误态被禁用后由下一次成功 render 恢复。
-  $('apply').disabled = !token;
-  $('reinstall').disabled = !token || !data.installed;
-  $('reinstall').title = !token ? '需要写操作令牌' : data.installed ? '' : '先安装核心组件再重装';
+  // 写按钮跟随 token / 安装状态；另一个标签页在安装中也只能读。
+  const installing = data.installing === true;
+  $('apply').disabled = !token || installing;
+  $('reinstall').disabled = !token || !data.installed || installing;
+  $('reinstall').title = installing
+    ? '安装器正在运行'
+    : !token
+      ? '需要写操作令牌'
+      : data.installed
+        ? ''
+        : '先安装核心组件再重装';
   $('dirty-note').hidden = !dirty;
 }
 
@@ -538,6 +549,10 @@ confirmButton.addEventListener('click', () => {
   }
   if (running) return;
   applyChanges();
+});
+dialog.addEventListener('close', () => {
+  // Toast belongs to the document again once the dialog leaves the top layer.
+  document.body.append($('toast'));
 });
 
 setupIntro();
