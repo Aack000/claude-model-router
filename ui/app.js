@@ -302,6 +302,8 @@ function openDialog(mode = 'apply') {
   add('规则', rules.length ? rules.join('、') : '全部移除');
   add('影响', '重装后需重启 Claude Code');
 
+  $('dialog-cancel').disabled = false;
+  $('dialog-cancel').textContent = '取消';
   dialogLog.hidden = true;
   dialogLog.textContent = '';
   confirmButton.disabled = false;
@@ -312,6 +314,8 @@ function openDialog(mode = 'apply') {
 async function applyChanges() {
   const { components, rules } = pendingPayload || selected();
   running = true;
+  $('dialog-cancel').disabled = true;
+  $('dialog-cancel').textContent = '运行中…';
   confirmButton.disabled = true;
   confirmButton.textContent = '正在运行…';
   dialogLog.hidden = false;
@@ -333,7 +337,7 @@ async function applyChanges() {
       confirmButton.disabled = false;
       confirmButton.textContent = '完成';
       toast('安装器已完成');
-      await load();
+      await load(true);
     } else {
       dialogLog.textContent = `✗ 安装器退出码 ${data.code}\n\n${data.output || '（无输出）'}`;
       confirmButton.disabled = false;
@@ -347,6 +351,8 @@ async function applyChanges() {
     toast('写操作失败');
   } finally {
     running = false;
+    $('dialog-cancel').disabled = false;
+    $('dialog-cancel').textContent = '取消';
   }
 }
 
@@ -454,16 +460,26 @@ function render(data) {
   $('apply').disabled = !token;
   $('reinstall').disabled = !token || !data.installed;
   $('reinstall').title = !token ? '需要写操作令牌' : data.installed ? '' : '先安装核心组件再重装';
+  $('dirty-note').hidden = !dirty;
 }
 
-async function load() {
+let loadSeq = 0;
+async function load(force = false) {
+  // 安装中禁止刷新，避免拿到“settings 已换、清单未换”的混合状态。
+  if (running && !force) {
+    toast('安装器正在运行，请等它结束');
+    return;
+  }
   const button = $('refresh');
+  const seq = ++loadSeq;
   button.disabled = true;
   button.classList.add('loading');
   try {
     const res = await fetch('/api/status', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    render(await res.json());
+    const data = await res.json();
+    if (seq !== loadSeq) return; // 过期响应不覆盖新数据
+    render(data);
   } catch (err) {
     renderError(`读取失败（${err.message}），点 REFRESH 重试。`);
     toast(`读取失败：${err.message}`);
@@ -494,6 +510,7 @@ document.querySelectorAll('.copy').forEach((button) => {
 for (const input of document.querySelectorAll('[data-group]')) {
   input.addEventListener('change', () => {
     dirty = true;
+    $('dirty-note').hidden = false;
     if (input.dataset.group === 'components') syncDependencies();
   });
 }

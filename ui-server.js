@@ -253,8 +253,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
+      const payload = await buildStatus();
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(await buildStatus()));
+      res.end(JSON.stringify({ ...payload, installing }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: String((err && err.message) || err) }));
