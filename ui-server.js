@@ -207,18 +207,31 @@ function runInstall(components, rules) {
 function readBody(req, limit = 32768) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
     req.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
       if (size > limit) {
-        reject(new Error('body too large'));
+        fail(new Error('body too large'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', fail);
+    req.on('aborted', () => fail(new Error('request aborted')));
+    req.on('close', () => { if (!req.complete) fail(new Error('request aborted')); });
   });
 }
 

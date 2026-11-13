@@ -477,7 +477,7 @@ function render(data) {
 let loadSeq = 0;
 async function load(force = false) {
   // 安装中禁止刷新，避免拿到“settings 已换、清单未换”的混合状态。
-  if (running && !force) {
+  if ((running || current?.installing) && !force) {
     toast('安装器正在运行，请等它结束');
     return;
   }
@@ -490,6 +490,10 @@ async function load(force = false) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (seq !== loadSeq) return; // 过期响应不覆盖新数据
+    if (data.installing && !force) {
+      toast('安装器正在运行，请稍后刷新');
+      return;
+    }
     render(data);
   } catch (err) {
     renderError(`读取失败（${err.message}），点 REFRESH 重试。`);
